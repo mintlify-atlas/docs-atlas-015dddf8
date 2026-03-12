@@ -1,0 +1,58 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "ADK Utils",
+  "projectDescription": "TypeScript utilities for Google Agent Development Kit (ADK) enabling local Ollama models and streaming agent interactions",
+  "theme": "palm",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "installation",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/ollama-model",
+          "guides/genai-agent-service",
+          "guides/mock-model",
+          "guides/streaming",
+          "guides/tool-calling"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
+          "api/ollama-model",
+          "api/genai-agent-service",
+          "api/mock-model"
+        ]
+      },
+      {
+        "group": "Testing",
+        "pages": [
+          "testing/overview",
+          "testing/playwright-e2e"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "OllamaModel - Custom BaseLlm implementation for local and cloud-hosted Ollama models",
+    "GenAIAgentService - Modular service for agent interactions with native streaming and SSE support",
+    "MockModel - Testing implementation for development without API costs or dependencies",
+    "Tool calling support for LLM function execution",
+    "Seamless integration with Vercel AI SDK and Google GenAI ecosystem"
+  ],
+  "publicApiSurface": [
+    "OllamaModel class - Custom LLM provider for Ollama models (local/cloud)",
+    "GenAIAgentService class - Streaming agent service with message validation and SSE formatting",
+    "MockModel class - Mock LLM implementation for testing with configurable delays and responses"
+  ]
+}
