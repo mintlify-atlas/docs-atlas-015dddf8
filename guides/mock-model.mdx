@@ -1,0 +1,446 @@
+---
+title: 'MockModel'
+description: 'Test your agents without API calls or external dependencies'
+icon: 'flask'
+---
+
+## Overview
+
+The `MockModel` class is a mock implementation of ADK's `BaseLlm` designed for testing and development. It allows you to simulate LLM responses with custom chunks and delays without making real API calls.
+
+<Info>
+  `MockModel` is particularly useful for **Playwright E2E tests**, **Jest unit tests**, and **development** when you want to avoid API costs or network dependencies.
+</Info>
+
+## Constructor
+
+Create a mock model with customizable behavior:
+
+```typescript
+new MockModel(
+  modelName?: string,
+  delay?: number,
+  chunks?: string[]
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `modelName` | `string` | `'mock-model'` | Model identifier |
+| `delay` | `number` | `0` | Delay in milliseconds between chunks |
+| `chunks` | `string[]` | `['Hello', ' world', '!']` | Array of response chunks |
+
+## Basic Usage
+
+### Simple Mock
+
+```typescript
+import { MockModel } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+// Create a mock model with default settings
+const mockModel = new MockModel();
+
+const agent = new LlmAgent({
+  name: 'MockAgent',
+  model: mockModel,
+  description: 'Testing Agent',
+  instruction: 'You are a test agent',
+});
+```
+
+### Custom Response
+
+```typescript
+import { MockModel } from '@yagolopez/adk-utils';
+
+// Custom response chunks with 50ms delay
+const mockModel = new MockModel(
+  'test-model',
+  50,  // 50ms delay between chunks
+  ['Custom', ' response', ' text']
+);
+```
+
+## Core Methods
+
+### setMockResponse()
+
+Dynamically change the mock response:
+
+```typescript
+setMockResponse(chunks: string[]): void
+```
+
+**Example:**
+
+```typescript
+const mockModel = new MockModel();
+
+// Initial response
+mockModel.setMockResponse(['Hello', ' world']);
+
+// Later, change the response
+mockModel.setMockResponse(['Goodbye', ' world']);
+```
+
+### setResponseDelay()
+
+Change the delay between chunks:
+
+```typescript
+setResponseDelay(delayMs: number): void
+```
+
+**Example:**
+
+```typescript
+const mockModel = new MockModel();
+
+// No delay initially
+mockModel.setResponseDelay(0);
+
+// Add 100ms delay for more realistic streaming
+mockModel.setResponseDelay(100);
+```
+
+## Use Cases
+
+### 1. Unit Testing with Jest
+
+Test your agent logic without external dependencies:
+
+```typescript
+import { MockModel, GenAIAgentService } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+describe('Agent Tests', () => {
+  let agent: LlmAgent;
+  let service: GenAIAgentService;
+  
+  beforeEach(() => {
+    const mockModel = new MockModel(
+      'test-model',
+      0,
+      ['Test response']
+    );
+    
+    agent = new LlmAgent({
+      name: 'test-agent',
+      model: mockModel,
+      instruction: 'Test instruction',
+    });
+    
+    service = new GenAIAgentService(agent);
+  });
+  
+  it('should generate a response', async () => {
+    const messages = [{ 
+      role: 'user', 
+      id: '1', 
+      parts: [{ type: 'text', text: 'Hello' }] 
+    }];
+    
+    const response = service.createStreamingResponse(messages);
+    const text = await response.text();
+    
+    expect(text).toContain('Test response');
+  });
+});
+```
+
+### 2. E2E Testing with Playwright
+
+`MockModel` is perfect for Playwright tests because it eliminates the need for a running Ollama instance:
+
+```typescript example.spec.ts
+import { test, expect } from '@playwright/test';
+import { MockModel, GenAIAgentService } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+test.describe('Chat Functionality', () => {
+  test('user can send a message and receive a response', async ({ page }) => {
+    // Intercept API route and mock response
+    await page.route('/api/genai-agent', async (route) => {
+      const { messages } = route.request().postDataJSON();
+
+      // Create agent with mock model
+      const agent = new LlmAgent({
+        name: 'test_agent',
+        description: 'test-description',
+        model: new MockModel('mock-model', 0, ['Response from mock model']),
+        instruction: 'You are a test agent.',
+      });
+
+      const service = new GenAIAgentService(agent);
+      const response = service.createStreamingResponse(messages);
+      const bodyBuffer = await response.arrayBuffer();
+
+      await route.fulfill({
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        contentType: response.headers.get('content-type') || 'text/event-stream',
+        body: Buffer.from(bodyBuffer),
+      });
+    });
+
+    await page.goto('/');
+
+    const input = page.getByPlaceholder('Ask the agent...');
+    await input.fill('Hello');
+
+    const sendButton = page.getByRole('button', { name: 'Send message' });
+    await sendButton.click();
+
+    await expect(page.getByText('Response from mock model')).toBeVisible();
+  });
+});
+```
+
+<Tip>
+  Using `MockModel` in E2E tests makes your test suite faster, more reliable, and eliminates flakiness from network issues.
+</Tip>
+
+### 3. Development Without API Costs
+
+Develop your UI without consuming API tokens:
+
+```typescript app/api/chat/route.ts
+import { GenAIAgentService, OllamaModel, MockModel } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+  
+  // Use MockModel in development
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  const model = isDev
+    ? new MockModel('dev-mock', 50, ['This is a ', 'mock response'])
+    : new OllamaModel('qwen2.5:0.5b');
+  
+  const agent = new LlmAgent({
+    name: 'chat-agent',
+    model,
+    instruction: 'You are a helpful assistant.',
+  });
+  
+  const service = new GenAIAgentService(agent);
+  
+  if (!service.validateMessages(messages)) {
+    return GenAIAgentService.createErrorResponse('Invalid messages', 400);
+  }
+  
+  return service.createStreamingResponse(messages);
+}
+```
+
+### 4. Testing Different Response Scenarios
+
+Simulate various response patterns:
+
+<Tabs>
+  <Tab title="Fast Response">
+    ```typescript
+    const fastModel = new MockModel(
+      'fast-model',
+      0,  // No delay
+      ['Instant response']
+    );
+    ```
+  </Tab>
+  <Tab title="Slow Response">
+    ```typescript
+    const slowModel = new MockModel(
+      'slow-model',
+      500,  // 500ms delay
+      ['Slow', ' response']
+    );
+    ```
+  </Tab>
+  <Tab title="Long Response">
+    ```typescript
+    const longModel = new MockModel(
+      'long-model',
+      50,
+      [
+        'This is a very long response ',
+        'that simulates streaming ',
+        'with multiple chunks ',
+        'to test UI behavior.'
+      ]
+    );
+    ```
+  </Tab>
+  <Tab title="Error Simulation">
+    ```typescript
+    // Test error handling by throwing in a tool
+    const agent = new LlmAgent({
+      name: 'error-test',
+      model: new MockModel(),
+      tools: [{
+        name: 'fail_tool',
+        func: async () => {
+          throw new Error('Simulated error');
+        }
+      }]
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Streaming vs Non-Streaming
+
+`MockModel` supports both streaming and non-streaming modes:
+
+### Streaming Mode (default)
+
+```typescript
+import { MockModel } from '@yagolopez/adk-utils';
+import { LlmRequest } from '@google/adk';
+
+const mockModel = new MockModel('test', 50, ['Hello', ' world']);
+
+const request = {
+  contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
+} as LlmRequest;
+
+// Enable streaming (default: true)
+const generator = mockModel.generateContentAsync(request, true);
+
+for await (const chunk of generator) {
+  console.log(chunk.content?.parts?.[0].text);
+  // Output:
+  // "Hello"
+  // " world"
+}
+```
+
+### Non-Streaming Mode
+
+```typescript
+import { MockModel } from '@yagolopez/adk-utils';
+import { LlmRequest } from '@google/adk';
+
+const mockModel = new MockModel('test', 0, ['Hello', ' world']);
+
+const request = {
+  contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
+} as LlmRequest;
+
+// Disable streaming
+const generator = mockModel.generateContentAsync(request, false);
+
+for await (const chunk of generator) {
+  console.log(chunk.content?.parts?.[0].text);
+  // Output: "Hello world"
+}
+```
+
+## Benefits Over Real API Calls
+
+<CardGroup cols={2}>
+  <Card title="Zero Cost" icon="dollar-sign">
+    No API tokens consumed, perfect for extensive testing
+  </Card>
+  <Card title="Predictable" icon="check">
+    Deterministic responses make tests reliable and reproducible
+  </Card>
+  <Card title="Fast" icon="bolt">
+    No network latency, tests run at maximum speed
+  </Card>
+  <Card title="Offline" icon="wifi-slash">
+    Works without internet connection or external services
+  </Card>
+  <Card title="Controllable" icon="sliders">
+    Full control over response timing and content
+  </Card>
+  <Card title="No Quota" icon="infinity">
+    Run unlimited tests without rate limits
+  </Card>
+</CardGroup>
+
+## Advanced Patterns
+
+### Dynamic Response Based on Input
+
+```typescript
+import { MockModel, GenAIAgentService } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+const mockModel = new MockModel();
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+  
+  // Change response based on user input
+  const lastMessage = messages[messages.length - 1];
+  
+  if (lastMessage.parts[0].text.includes('weather')) {
+    mockModel.setMockResponse(['The weather is sunny']);
+  } else if (lastMessage.parts[0].text.includes('time')) {
+    mockModel.setMockResponse(['It is 3:00 PM']);
+  } else {
+    mockModel.setMockResponse(['I am a mock response']);
+  }
+  
+  const agent = new LlmAgent({
+    name: 'dynamic-mock',
+    model: mockModel,
+    instruction: 'Test agent',
+  });
+  
+  const service = new GenAIAgentService(agent);
+  return service.createStreamingResponse(messages);
+}
+```
+
+### Simulating Realistic Streaming
+
+```typescript
+const mockModel = new MockModel(
+  'realistic-mock',
+  75,  // Human-like typing speed
+  [
+    'Let me ',
+    'think about ',
+    'that. ',
+    'Based on ',
+    'the information, ',
+    'I would say ',
+    'the answer is ',
+    'yes.'
+  ]
+);
+```
+
+## Limitations
+
+<Warning>
+  Like `OllamaModel`, live connections are not supported:
+  
+  ```typescript
+  mockModel.connect()  // Throws: "Live connections are not supported for MockModel"
+  ```
+</Warning>
+
+<Note>
+  `MockModel` does not support tool calling responses. For testing tool execution, use the actual tool implementation with `MockModel` for the base responses.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GenAI Agent Service" icon="server" href="/guides/genai-agent-service">
+    Learn how to use MockModel in API routes
+  </Card>
+  <Card title="Streaming" icon="water" href="/guides/streaming">
+    Understand how streaming works with mock responses
+  </Card>
+  <Card title="OllamaModel" icon="computer" href="/guides/ollama-model">
+    Switch to real models when ready for production
+  </Card>
+  <Card title="Tool Calling" icon="wrench" href="/guides/tool-calling">
+    Test agents with tool calling capabilities
+  </Card>
+</CardGroup>

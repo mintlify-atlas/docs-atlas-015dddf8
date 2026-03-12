@@ -1,0 +1,91 @@
+---
+title: Introduction
+description: Learn about ADK Utils - TypeScript utilities for Google Agent Development Kit with Ollama integration
+---
+
+# Introduction to ADK Utils
+
+ADK Utils is a set of utilities for the [Google Agent Development Kit (ADK)](https://google.github.io/adk-docs/) that enables TypeScript developers to build AI agents using local and cloud-hosted Ollama models.
+
+## The Problem It Solves
+
+Google's Agent Development Kit provides native support for local models in Python through the `litellm` library, but **there is no equivalent solution for TypeScript developers**. ADK Utils fills this critical gap by providing:
+
+- **OllamaModel**: A custom `BaseLlm` implementation that works with both local and cloud-hosted Ollama models
+- **TypeScript-first design**: Built specifically for TypeScript/JavaScript developers
+- **ADK compatibility**: Seamlessly integrates with Google's ADK framework
+
+<Note>
+  [Ollama](https://ollama.com) local models can be very convenient during development time to save tokens and costs.
+</Note>
+
+## Why Use ADK Utils?
+
+<CardGroup cols={2}>
+  <Card title="Save Development Costs" icon="dollar-sign">
+    Use local Ollama models during development to avoid API costs while testing and iterating on your agents.
+  </Card>
+  <Card title="TypeScript Support" icon="code">
+    First-class TypeScript support for ADK with full type safety and IntelliSense.
+  </Card>
+  <Card title="Flexible Deployment" icon="cloud">
+    Switch seamlessly between local Ollama models for development and cloud-hosted models for production.
+  </Card>
+  <Card title="Built for Testing" icon="vial">
+    Includes MockModel for unit testing and E2E tests without external dependencies or API costs.
+  </Card>
+</CardGroup>
+
+## Key Features
+
+### OllamaModel
+Custom implementation of ADK's `BaseLlm` that enables using Ollama models (both local and cloud) with Google's Agent Development Kit. Supports function calling and tool usage.
+
+### GenAIAgentService
+Modular service class that simplifies creating streaming API endpoints in Next.js applications. Handles:
+- Message transformation between Vercel AI SDK and ADK formats
+- Server-Sent Events (SSE) streaming
+- Tool execution and multi-turn conversations
+- Error handling and validation
+
+### MockModel
+Mock implementation of `BaseLlm` for testing and development:
+- Test agents without running Ollama or making API calls
+- Simulate streaming responses with configurable delays
+- Perfect for Playwright E2E tests and Jest unit tests
+- Zero API costs during testing
+
+## Ecosystem Compatibility
+
+ADK Utils is designed to work seamlessly with:
+
+- **Google ADK**: Extends ADK's `BaseLlm` class for full compatibility
+- **Vercel AI SDK**: Compatible with the `ai` package for streaming UI
+- **Next.js**: Optimized for Next.js API routes with streaming support
+- **Ollama**: Works with both local and cloud-hosted Ollama instances
+
+## Quick Links
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Get started by installing ADK Utils and its dependencies
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Build your first agent in under 5 minutes
+  </Card>
+  <Card title="OllamaModel Guide" icon="brain" href="/guides/ollama-model">
+    Learn how to use local and cloud Ollama models
+  </Card>
+  <Card title="GenAIAgentService" icon="server" href="/guides/genai-agent-service">
+    Create streaming API endpoints for your agents
+  </Card>
+</CardGroup>
+
+## Live Demo
+
+See ADK Utils in action:
+- [https://adk-utils-example.vercel.app](https://adk-utils-example.vercel.app)
+
+## Next Steps
+
+Ready to get started? Head over to the [Installation](/installation) guide to set up ADK Utils in your project.

@@ -1,0 +1,435 @@
+---
+title: MockModel
+description: Mock LLM implementation for testing purposes without external dependencies
+---
+
+## Overview
+
+`MockModel` is a mock implementation of the ADK's `BaseLlm` class designed for testing purposes. It allows you to simulate streaming and non-streaming LLM responses without requiring external API calls or dependencies.
+
+## Constructor
+
+```typescript
+constructor(
+  modelName?: string,
+  delay?: number,
+  chunks?: string[]
+)
+```
+
+<ParamField path="modelName" type="string" default="mock-model">
+  The name identifier for the mock model
+</ParamField>
+
+<ParamField path="delay" type="number" default="0">
+  Simulated delay in milliseconds between response chunks
+</ParamField>
+
+<ParamField path="chunks" type="string[]" default='["Hello", " world", "!"]'>
+  Array of text chunks to return as the mock response
+</ParamField>
+
+### Example
+
+```typescript
+import { MockModel } from 'adk-utils';
+
+// Default mock with no delay
+const quickMock = new MockModel();
+
+// Mock with custom response and delay
+const customMock = new MockModel(
+  'test-model',
+  100,  // 100ms delay between chunks
+  ['Chunk 1', ' Chunk 2', ' Chunk 3']
+);
+
+// Mock for testing slow responses
+const slowMock = new MockModel(
+  'slow-model',
+  2000,  // 2 second delay
+  ['Slow', ' response']
+);
+```
+
+## Properties
+
+### responseChunks
+
+```typescript
+private responseChunks: string[]
+```
+
+Array of text chunks that will be returned by the mock when generating content.
+
+### responseDelay
+
+```typescript
+private responseDelay: number
+```
+
+Delay in milliseconds between chunks (for streaming mode) or before the response (for non-streaming mode).
+
+## Methods
+
+### setMockResponse
+
+Sets the response chunks to be returned by the mock.
+
+```typescript
+setMockResponse(chunks: string[]): void
+```
+
+<ParamField path="chunks" type="string[]" required>
+  Array of string chunks to simulate streaming response
+</ParamField>
+
+#### Example
+
+```typescript
+const mock = new MockModel();
+
+// Change the mock response dynamically
+mock.setMockResponse([
+  'The capital of France',
+  ' is',
+  ' Paris.'
+]);
+```
+
+<Info>
+  This method is useful when you need to change the mock response between test cases or during a test.
+</Info>
+
+### setResponseDelay
+
+Sets the simulated delay between chunks.
+
+```typescript
+setResponseDelay(delayMs: number): void
+```
+
+<ParamField path="delayMs" type="number" required>
+  Delay in milliseconds
+</ParamField>
+
+#### Example
+
+```typescript
+const mock = new MockModel();
+
+// Test with no delay
+mock.setResponseDelay(0);
+await testFastResponse();
+
+// Test with slow network conditions
+mock.setResponseDelay(3000);
+await testSlowResponse();
+```
+
+<Note>
+  The delay applies both between chunks in streaming mode and as an initial delay in non-streaming mode.
+</Note>
+
+### generateContentAsync
+
+Generates mock content, supporting both streaming and non-streaming modes.
+
+```typescript
+async *generateContentAsync(
+  llmRequest: LlmRequest,
+  stream?: boolean
+): AsyncGenerator<LlmResponse, void>
+```
+
+<ParamField path="llmRequest" type="LlmRequest" required>
+  The request object (contents are ignored by the mock, but required for type compatibility)
+</ParamField>
+
+<ParamField path="stream" type="boolean" default="true">
+  Whether to stream the response. When `true`, yields multiple partial responses. When `false`, yields a single complete response with all chunks joined.
+</ParamField>
+
+<ResponseField name="return" type="AsyncGenerator<LlmResponse, void>">
+  An async generator that yields mock response objects
+  
+  <Expandable title="LlmResponse properties">
+    <ResponseField name="content" type="Content">
+      The mock response content
+      
+      <Expandable title="Content structure">
+        <ResponseField name="role" type="'model'">
+          Always set to 'model'
+        </ResponseField>
+        
+        <ResponseField name="parts" type="Part[]">
+          Array containing a single text part
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="partial" type="boolean">
+      `true` in streaming mode, `false` in non-streaming mode
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Streaming Example
+
+```typescript
+import { MockModel } from 'adk-utils';
+
+const mock = new MockModel(
+  'test-model',
+  50,  // 50ms delay between chunks
+  ['Hello', ' from', ' mock!']
+);
+
+const request = {
+  contents: [{
+    role: 'user',
+    parts: [{ text: 'Test message' }]
+  }]
+};
+
+// Stream response chunks
+for await (const response of mock.generateContentAsync(request, true)) {
+  console.log('Chunk:', response.content.parts[0].text);
+  console.log('Is partial:', response.partial);  // true
+}
+
+// Output:
+// Chunk: Hello
+// Is partial: true
+// Chunk:  from
+// Is partial: true
+// Chunk:  mock!
+// Is partial: true
+```
+
+#### Non-Streaming Example
+
+```typescript
+const mock = new MockModel(
+  'test-model',
+  0,
+  ['Hello', ' from', ' mock!']
+);
+
+const request = {
+  contents: [{
+    role: 'user',
+    parts: [{ text: 'Test message' }]
+  }]
+};
+
+// Get complete response
+for await (const response of mock.generateContentAsync(request, false)) {
+  console.log('Full text:', response.content.parts[0].text);
+  console.log('Is partial:', response.partial);  // false
+}
+
+// Output:
+// Full text: Hello from mock!
+// Is partial: false
+```
+
+#### Testing with Delays
+
+```typescript
+const mock = new MockModel('test-model', 1000, ['Slow', ' response']);
+
+const start = Date.now();
+for await (const response of mock.generateContentAsync(request, true)) {
+  const elapsed = Date.now() - start;
+  console.log(`[${elapsed}ms] ${response.content.parts[0].text}`);
+}
+
+// Output:
+// [1000ms] Slow
+// [2000ms]  response
+```
+
+<Note>
+  In non-streaming mode, the delay is applied once before returning the complete response. In streaming mode, the delay is applied before each chunk.
+</Note>
+
+### connect
+
+Attempts to establish a live connection to the model.
+
+```typescript
+connect(): Promise<BaseLlmConnection>
+```
+
+<Warning>
+  This method always throws an error with the message: "Live connections are not supported for MockModel". MockModel only supports request/response patterns via `generateContentAsync`.
+</Warning>
+
+## Testing Examples
+
+### Unit Testing an Agent
+
+```typescript
+import { LlmAgent } from '@google/adk';
+import { MockModel } from 'adk-utils';
+
+describe('ChatAgent', () => {
+  it('should handle streaming responses', async () => {
+    const mockModel = new MockModel(
+      'test',
+      0,
+      ['The', ' answer', ' is', ' 42']
+    );
+    
+    const agent = new LlmAgent({
+      model: mockModel,
+      name: 'TestAgent'
+    });
+    
+    const chunks: string[] = [];
+    const response = agent.generateContentAsync({
+      contents: [{
+        role: 'user',
+        parts: [{ text: 'What is the answer?' }]
+      }]
+    }, true);
+    
+    for await (const chunk of response) {
+      if (chunk.content.parts[0]?.text) {
+        chunks.push(chunk.content.parts[0].text);
+      }
+    }
+    
+    expect(chunks).toEqual(['The', ' answer', ' is', ' 42']);
+  });
+});
+```
+
+### Testing Different Scenarios
+
+```typescript
+import { MockModel } from 'adk-utils';
+
+const mock = new MockModel();
+
+// Test success scenario
+mock.setMockResponse(['Success!']);
+mock.setResponseDelay(0);
+await testSuccessCase();
+
+// Test slow network
+mock.setResponseDelay(5000);
+await testTimeoutHandling();
+
+// Test long response
+mock.setMockResponse([
+  'This is',
+  ' a very',
+  ' long response',
+  ' with many',
+  ' chunks'
+]);
+mock.setResponseDelay(100);
+await testStreamingUI();
+
+// Test empty response
+mock.setMockResponse(['']);
+await testEmptyResponse();
+```
+
+### Integration Testing with Services
+
+```typescript
+import { GenAIAgentService } from 'adk-utils';
+import { MockModel } from 'adk-utils';
+import { LlmAgent } from '@google/adk';
+
+describe('GenAIAgentService', () => {
+  it('should stream mock responses correctly', async () => {
+    const mockModel = new MockModel(
+      'test',
+      0,
+      ['Mock', ' response']
+    );
+    
+    const agent = new LlmAgent({
+      model: mockModel,
+      name: 'TestAgent'
+    });
+    
+    const service = new GenAIAgentService(agent);
+    
+    const messages = [
+      {
+        role: 'user' as const,
+        parts: [{ type: 'text' as const, text: 'Hello' }]
+      }
+    ];
+    
+    const response = service.createStreamingResponse(messages);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+  });
+});
+```
+
+## Best Practices
+
+<Note>
+  **Use MockModel for:**
+  - Unit testing agent logic without API calls
+  - Integration testing of services and API routes
+  - Testing streaming UI components
+  - Simulating network delays and latency
+  - Testing error handling paths
+  - CI/CD pipelines where external APIs are unavailable
+</Note>
+
+<Warning>
+  **MockModel limitations:**
+  - Does not support tool/function calling
+  - Ignores the actual request content
+  - Does not validate input format
+  - Cannot simulate API errors or failures
+  
+  For testing error scenarios, you'll need to create a custom mock or use a different testing approach.
+</Warning>
+
+## Advanced Usage
+
+### Simulating Progressive Responses
+
+```typescript
+const mock = new MockModel();
+
+// Simulate thinking process
+mock.setMockResponse([
+  'Let me think...',
+  ' Based on the data,',
+  ' the answer is:',
+  ' 42'
+]);
+mock.setResponseDelay(500);
+
+// Each chunk appears 500ms apart
+```
+
+### Testing Performance
+
+```typescript
+const mock = new MockModel('perf-test', 0, ['Result']);
+
+const iterations = 1000;
+const start = Date.now();
+
+for (let i = 0; i < iterations; i++) {
+  for await (const response of mock.generateContentAsync(request, false)) {
+    // Process response
+  }
+}
+
+const elapsed = Date.now() - start;
+console.log(`${iterations} calls in ${elapsed}ms`);
+console.log(`Average: ${elapsed / iterations}ms per call`);
+```

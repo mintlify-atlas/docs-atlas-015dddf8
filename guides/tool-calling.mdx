@@ -1,0 +1,637 @@
+---
+title: 'Tool Calling'
+description: 'Add function calling capabilities to your ADK agents'
+icon: 'wrench'
+---
+
+## Overview
+
+Tool calling (also known as function calling) allows your LLM agents to execute custom functions and tools to perform actions like fetching data, making calculations, or interacting with external APIs.
+
+<Info>
+  `OllamaModel` has built-in support for tool calling with models that support function calling, such as `qwen2.5-coder`, `llama3.1`, and `mistral-nemo`.
+</Info>
+
+## What is Tool Calling?
+
+Tool calling enables your agent to:
+1. **Recognize** when it needs to use a tool to answer a question
+2. **Request** tool execution with specific parameters
+3. **Receive** tool results and incorporate them into the response
+4. **Continue** the conversation with enriched context
+
+<Steps>
+  <Step title="User asks a question">
+    "What's the weather in Paris?"
+  </Step>
+  <Step title="Agent requests tool">
+    Agent calls `get_weather` tool with parameter `city: "Paris"`
+  </Step>
+  <Step title="Tool executes">
+    Function runs and returns `{ temperature: 18, condition: "cloudy" }`
+  </Step>
+  <Step title="Agent responds">
+    "The weather in Paris is 18°C and cloudy."
+  </Step>
+</Steps>
+
+## Defining Tools for ADK Agents
+
+### Using ADK Tool Class
+
+Define tools using the ADK `Tool` class:
+
+```typescript
+import { Tool } from '@google/adk';
+
+const weatherTool = new Tool({
+  name: 'get_weather',
+  description: 'Get the current weather for a city',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      city: {
+        type: 'STRING',
+        description: 'The city name'
+      },
+      units: {
+        type: 'STRING',
+        description: 'Temperature units (celsius or fahrenheit)',
+        enum: ['celsius', 'fahrenheit']
+      }
+    },
+    required: ['city']
+  },
+  func: async ({ city, units = 'celsius' }) => {
+    // Your tool implementation
+    const weather = await fetchWeatherAPI(city);
+    return {
+      temperature: units === 'celsius' ? weather.temp_c : weather.temp_f,
+      condition: weather.condition,
+      humidity: weather.humidity
+    };
+  }
+});
+```
+
+### Tool Schema Structure
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Tool identifier (lowercase, underscores recommended) |
+| `description` | `string` | What the tool does (helps LLM decide when to use it) |
+| `parameters` | `JSONSchema` | Parameter schema defining expected inputs |
+| `func` | `async function` | The actual tool implementation |
+
+<Note>
+  Descriptions are crucial! The LLM uses them to decide when and how to call your tools.
+</Note>
+
+## OllamaModel Tool Support
+
+`OllamaModel` automatically converts ADK tool definitions to Ollama's format:
+
+```typescript
+import { OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent, Tool } from '@google/adk';
+
+const calculatorTool = new Tool({
+  name: 'calculate',
+  description: 'Perform mathematical calculations',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      expression: {
+        type: 'STRING',
+        description: 'Math expression to evaluate (e.g., "2 + 2")'
+      }
+    },
+    required: ['expression']
+  },
+  func: async ({ expression }) => {
+    try {
+      // Use a safe evaluation library in production
+      const result = eval(expression);
+      return { result };
+    } catch (error) {
+      return { error: 'Invalid expression' };
+    }
+  }
+});
+
+const agent = new LlmAgent({
+  name: 'math-agent',
+  model: new OllamaModel('qwen2.5-coder'),  // Use a model with tool support
+  instruction: 'You are a helpful math assistant. Use the calculator tool for calculations.',
+  tools: [calculatorTool],  // Add tools here
+});
+```
+
+<Warning>
+  Use models that support tool calling: `qwen2.5-coder`, `llama3.1`, `mistral-nemo`, or other models with function calling support.
+</Warning>
+
+## Tool Execution Flow
+
+When using `GenAIAgentService`, tool execution is handled automatically:
+
+<CodeGroup>
+```typescript app/api/agent/route.ts
+import { GenAIAgentService, OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent, Tool } from '@google/adk';
+
+// Define your tools
+const searchTool = new Tool({
+  name: 'search_database',
+  description: 'Search the product database',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      query: { type: 'STRING', description: 'Search query' }
+    },
+    required: ['query']
+  },
+  func: async ({ query }) => {
+    // Search logic
+    const results = await database.search(query);
+    return { results };
+  }
+});
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+  
+  const agent = new LlmAgent({
+    name: 'search-agent',
+    model: new OllamaModel('qwen2.5-coder'),
+    instruction: 'You help users search the database. Use the search_database tool.',
+    tools: [searchTool],  // Tools are passed here
+  });
+  
+  const service = new GenAIAgentService(agent);
+  
+  if (!service.validateMessages(messages)) {
+    return GenAIAgentService.createErrorResponse('Invalid messages', 400);
+  }
+  
+  // Tool execution happens automatically inside this call
+  return service.createStreamingResponse(messages);
+}
+```
+
+```typescript components/SearchChat.tsx
+'use client';
+
+import { useChat } from '@ai-sdk/react';
+
+export default function SearchChat() {
+  const { messages, input, handleInputChange, handleSubmit } = useChat({
+    api: '/api/agent',
+  });
+  
+  return (
+    <div>
+      {messages.map(msg => (
+        <div key={msg.id}>
+          <strong>{msg.role}:</strong> {msg.content}
+        </div>
+      ))}
+      <form onSubmit={handleSubmit}>
+        <input value={input} onChange={handleInputChange} />
+        <button type="submit">Search</button>
+      </form>
+    </div>
+  );
+}
+```
+</CodeGroup>
+
+### Automatic Multi-Turn Execution
+
+The service handles multi-turn conversations automatically:
+
+```typescript
+// User: "What's the weather in Paris and London?"
+
+// Turn 1: Model requests tools
+// - get_weather(city: "Paris")
+// - get_weather(city: "London")
+
+// Service executes tools in parallel
+// - Result 1: { temperature: 18, condition: "cloudy" }
+// - Result 2: { temperature: 15, condition: "rainy" }
+
+// Turn 2: Model uses results
+// "In Paris, it's 18°C and cloudy. In London, it's 15°C and rainy."
+```
+
+<Note>
+  The service executes up to 5 turns (`MAX_TURNS`) to handle complex multi-step tool interactions.
+</Note>
+
+## Example with Working Tools
+
+### Complete Example: Weather Agent
+
+<CodeGroup>
+```typescript lib/tools/weather.ts
+import { Tool } from '@google/adk';
+
+interface WeatherData {
+  temperature: number;
+  condition: string;
+  humidity: number;
+  wind_speed: number;
+}
+
+// Simulated weather API
+async function fetchWeather(city: string): Promise<WeatherData> {
+  // In production, call a real weather API
+  const mockData: Record<string, WeatherData> = {
+    'paris': { temperature: 18, condition: 'cloudy', humidity: 65, wind_speed: 12 },
+    'london': { temperature: 15, condition: 'rainy', humidity: 78, wind_speed: 18 },
+    'tokyo': { temperature: 24, condition: 'sunny', humidity: 55, wind_speed: 8 },
+  };
+  
+  const data = mockData[city.toLowerCase()];
+  if (!data) {
+    throw new Error(`Weather data not found for ${city}`);
+  }
+  
+  return data;
+}
+
+export const weatherTool = new Tool({
+  name: 'get_weather',
+  description: 'Get current weather information for a city',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      city: {
+        type: 'STRING',
+        description: 'The city name (e.g., Paris, London, Tokyo)'
+      }
+    },
+    required: ['city']
+  },
+  func: async ({ city }) => {
+    try {
+      const weather = await fetchWeather(city as string);
+      return {
+        success: true,
+        data: weather
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+});
+```
+
+```typescript app/api/weather-agent/route.ts
+import { GenAIAgentService, OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+import { weatherTool } from '@/lib/tools/weather';
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+  
+  const agent = new LlmAgent({
+    name: 'weather-assistant',
+    model: new OllamaModel('qwen2.5-coder', 'https://ollama.com'),
+    instruction: `You are a weather assistant. When users ask about weather, use the get_weather tool to fetch current weather data.
+    
+    Format your responses in a friendly, conversational way. Include temperature, condition, humidity, and wind speed in your answers.`,
+    tools: [weatherTool],
+  });
+  
+  const service = new GenAIAgentService(agent);
+  
+  if (!service.validateMessages(messages)) {
+    return GenAIAgentService.createErrorResponse('Invalid messages', 400);
+  }
+  
+  return service.createStreamingResponse(messages);
+}
+```
+
+```typescript app/page.tsx
+'use client';
+
+import { useChat } from '@ai-sdk/react';
+
+export default function WeatherChat() {
+  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+    api: '/api/weather-agent',
+  });
+  
+  return (
+    <div className="max-w-2xl mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-4">Weather Assistant</h1>
+      
+      <div className="space-y-4 mb-4">
+        {messages.map(message => (
+          <div
+            key={message.id}
+            className={`p-3 rounded-lg ${
+              message.role === 'user'
+                ? 'bg-blue-100 ml-auto max-w-[80%]'
+                : 'bg-gray-100 mr-auto max-w-[80%]'
+            }`}
+          >
+            <div className="font-semibold text-sm mb-1">
+              {message.role === 'user' ? 'You' : 'Assistant'}
+            </div>
+            <div>{message.content}</div>
+          </div>
+        ))}
+        {isLoading && (
+          <div className="text-gray-500 text-sm">Checking weather...</div>
+        )}
+      </div>
+      
+      <form onSubmit={handleSubmit} className="flex gap-2">
+        <input
+          value={input}
+          onChange={handleInputChange}
+          placeholder="Ask about the weather..."
+          disabled={isLoading}
+          className="flex-1 p-2 border rounded"
+        />
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+        >
+          Send
+        </button>
+      </form>
+      
+      <div className="mt-4 text-sm text-gray-600">
+        <p>Try asking:</p>
+        <ul className="list-disc list-inside mt-2">
+          <li>"What's the weather in Paris?"</li>
+          <li>"How's the weather in London and Tokyo?"</li>
+          <li>"Compare weather between Paris and London"</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+```
+</CodeGroup>
+
+### Multiple Tools Example
+
+```typescript
+import { Tool } from '@google/adk';
+import { LlmAgent } from '@google/adk';
+import { OllamaModel } from '@yagolopez/adk-utils';
+
+// Tool 1: Get current time
+const timeTool = new Tool({
+  name: 'get_current_time',
+  description: 'Get the current time in a specific timezone',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      timezone: {
+        type: 'STRING',
+        description: 'Timezone (e.g., America/New_York, Europe/Paris)'
+      }
+    },
+    required: ['timezone']
+  },
+  func: async ({ timezone }) => {
+    const now = new Date();
+    const timeString = now.toLocaleString('en-US', { timeZone: timezone as string });
+    return { time: timeString, timezone };
+  }
+});
+
+// Tool 2: Convert currency
+const currencyTool = new Tool({
+  name: 'convert_currency',
+  description: 'Convert amount from one currency to another',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      amount: { type: 'NUMBER', description: 'Amount to convert' },
+      from: { type: 'STRING', description: 'Source currency code (e.g., USD)' },
+      to: { type: 'STRING', description: 'Target currency code (e.g., EUR)' }
+    },
+    required: ['amount', 'from', 'to']
+  },
+  func: async ({ amount, from, to }) => {
+    // Mock exchange rates
+    const rates: Record<string, Record<string, number>> = {
+      'USD': { 'EUR': 0.92, 'GBP': 0.79, 'JPY': 149.50 },
+      'EUR': { 'USD': 1.09, 'GBP': 0.86, 'JPY': 162.50 },
+    };
+    
+    const rate = rates[from as string]?.[to as string];
+    if (!rate) {
+      return { error: 'Exchange rate not available' };
+    }
+    
+    const result = (amount as number) * rate;
+    return {
+      original: { amount, currency: from },
+      converted: { amount: result.toFixed(2), currency: to },
+      rate
+    };
+  }
+});
+
+// Agent with multiple tools
+const agent = new LlmAgent({
+  name: 'utility-agent',
+  model: new OllamaModel('qwen2.5-coder'),
+  instruction: 'You are a helpful assistant that can check the time and convert currencies.',
+  tools: [timeTool, currencyTool],
+});
+```
+
+## Best Practices
+
+<Accordion title="1. Write Clear Tool Descriptions">
+  The LLM relies on descriptions to decide when to use tools. Be specific:
+
+  **Good:**
+  ```typescript
+  description: 'Get current weather including temperature, humidity, and conditions for a specific city'
+  ```
+
+  **Bad:**
+  ```typescript
+  description: 'Weather'
+  ```
+</Accordion>
+
+<Accordion title="2. Validate Tool Parameters">
+  Always validate and sanitize inputs in your tool functions:
+
+  ```typescript
+  func: async ({ city }) => {
+    if (!city || typeof city !== 'string') {
+      return { error: 'Invalid city parameter' };
+    }
+    
+    const sanitizedCity = city.trim().toLowerCase();
+    // Continue with validated input...
+  }
+  ```
+</Accordion>
+
+<Accordion title="3. Handle Errors Gracefully">
+  Return structured error objects instead of throwing:
+
+  ```typescript
+  func: async ({ query }) => {
+    try {
+      const results = await api.search(query);
+      return { success: true, data: results };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+  ```
+</Accordion>
+
+<Accordion title="4. Use Type-Safe Parameters">
+  Define strict parameter schemas:
+
+  ```typescript
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      status: {
+        type: 'STRING',
+        enum: ['active', 'pending', 'completed'],  // Restrict values
+        description: 'Task status'
+      },
+      priority: {
+        type: 'INTEGER',
+        minimum: 1,
+        maximum: 5,
+        description: 'Priority level (1-5)'
+      }
+    },
+    required: ['status']  // Mark required fields
+  }
+  ```
+</Accordion>
+
+<Accordion title="5. Optimize Tool Performance">
+  - Use caching for frequently accessed data
+  - Implement timeouts for external API calls
+  - Execute independent tools in parallel (handled automatically)
+
+  ```typescript
+  func: async ({ query }) => {
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout')), 5000)
+    );
+    
+    try {
+      const result = await Promise.race([
+        api.search(query),
+        timeoutPromise
+      ]);
+      return { success: true, data: result };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+  ```
+</Accordion>
+
+## Schema Sanitization
+
+`OllamaModel` automatically sanitizes tool schemas by converting uppercase types to lowercase:
+
+```typescript
+// Your ADK schema (uppercase)
+parameters: {
+  type: 'OBJECT',
+  properties: {
+    city: { type: 'STRING' },
+    count: { type: 'INTEGER' }
+  }
+}
+
+// Automatically converted to Ollama format (lowercase)
+parameters: {
+  type: 'object',
+  properties: {
+    city: { type: 'string' },
+    count: { type: 'integer' }
+  }
+}
+```
+
+This happens automatically in the `sanitizeSchema` method (ollama-model.ts:240).
+
+## Testing Tools
+
+Test your tools independently before integrating with agents:
+
+```typescript
+import { weatherTool } from '@/lib/tools/weather';
+
+describe('Weather Tool', () => {
+  it('should fetch weather for valid city', async () => {
+    const result = await weatherTool.func({ city: 'Paris' });
+    
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveProperty('temperature');
+    expect(result.data).toHaveProperty('condition');
+  });
+  
+  it('should handle invalid city', async () => {
+    const result = await weatherTool.func({ city: 'InvalidCity' });
+    
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+  });
+});
+```
+
+## Limitations
+
+<Warning>
+  **Model Support:** Not all Ollama models support tool calling. Verify your model supports function calling before implementing tools.
+  
+  Recommended models:
+  - `qwen2.5-coder`
+  - `llama3.1` (8B, 70B, 405B)
+  - `mistral-nemo`
+  - `qwen2.5` (recent versions)
+</Warning>
+
+<Warning>
+  **Turn Limit:** The service executes up to `MAX_TURNS` (default: 5) turns. Complex multi-step workflows may hit this limit. Consider breaking complex tasks into simpler operations.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GenAI Agent Service" icon="server" href="/guides/genai-agent-service">
+    Learn how tool execution works in the service
+  </Card>
+  <Card title="Streaming" icon="water" href="/guides/streaming">
+    Understand how tool calls are streamed to clients
+  </Card>
+  <Card title="OllamaModel" icon="computer" href="/guides/ollama-model">
+    Choose the right model for tool calling
+  </Card>
+  <Card title="Mock Model" icon="flask" href="/guides/mock-model">
+    Test your tools without real API calls
+  </Card>
+</CardGroup>

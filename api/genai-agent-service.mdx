@@ -1,0 +1,494 @@
+---
+title: GenAIAgentService
+description: Service class to handle GenAI agent interactions with streaming support and tool execution
+---
+
+## Overview
+
+`GenAIAgentService` provides a modular, testable structure for handling LLM agent interactions with Server-Sent Events (SSE) streaming support. It manages multi-turn conversations, tool execution, and response formatting for API routes.
+
+## Constructor
+
+```typescript
+constructor(agent: LlmAgent)
+```
+
+<ParamField path="agent" type="LlmAgent" required>
+  An ADK LlmAgent instance that contains the model, tools, and configuration
+</ParamField>
+
+### Example
+
+```typescript
+import { LlmAgent } from '@google/adk';
+import { GenAIAgentService } from 'adk-utils';
+import { OllamaModel } from 'adk-utils';
+
+const model = new OllamaModel('qwen3:0.6b');
+const tools = [/* your tools */];
+
+const agent = new LlmAgent({
+  model,
+  tools,
+  name: 'MyAgent'
+});
+
+const service = new GenAIAgentService(agent);
+```
+
+## Properties
+
+### agent
+
+```typescript
+private agent: LlmAgent
+```
+
+The LlmAgent instance provided during construction.
+
+### model
+
+```typescript
+private model: BaseLlm
+```
+
+The canonical model from the agent (extracted from `agent.canonicalModel`).
+
+### tools
+
+```typescript
+private tools: ToolUnion[]
+```
+
+Array of tools available to the agent for function calling.
+
+### MAX_TURNS
+
+```typescript
+private readonly MAX_TURNS = 5
+```
+
+Maximum number of conversation turns allowed before the service stops the conversation loop. Prevents infinite loops in tool execution.
+
+## Methods
+
+### validateMessages
+
+Validates that the incoming messages array is properly formatted.
+
+```typescript
+validateMessages(messages: UIMessage[] | undefined): messages is UIMessage[]
+```
+
+<ParamField path="messages" type="UIMessage[] | undefined">
+  The messages array to validate from the Vercel AI SDK
+</ParamField>
+
+<ResponseField name="return" type="boolean">
+  Returns `true` if messages is a non-empty array, `false` otherwise
+</ResponseField>
+
+#### Example
+
+```typescript
+if (!service.validateMessages(messages)) {
+  return GenAIAgentService.createErrorResponse(
+    'Invalid request: messages array required',
+    400
+  );
+}
+```
+
+### transformMessagesToContents
+
+Transforms Vercel AI SDK UIMessage format to ADK Content format.
+
+```typescript
+transformMessagesToContents(messages: UIMessage[]): Content[]
+```
+
+<ParamField path="messages" type="UIMessage[]" required>
+  Array of messages in Vercel AI SDK format
+  
+  <Expandable title="UIMessage structure">
+    <ResponseField name="role" type="'user' | 'assistant'" required>
+      The role of the message sender
+    </ResponseField>
+    
+    <ResponseField name="parts" type="Part[]" required>
+      Array of message parts (typically text)
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="return" type="Content[]">
+  Array of Content objects in ADK format
+  
+  <Expandable title="Content structure">
+    <ResponseField name="role" type="'user' | 'model'">
+      Mapped role ('assistant' becomes 'model')
+    </ResponseField>
+    
+    <ResponseField name="parts" type="Part[]">
+      Array of parts containing text content
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Example
+
+```typescript
+const uiMessages = [
+  {
+    role: 'user',
+    parts: [{ type: 'text', text: 'Hello' }]
+  },
+  {
+    role: 'assistant',
+    parts: [{ type: 'text', text: 'Hi there!' }]
+  }
+];
+
+const contents = service.transformMessagesToContents(uiMessages);
+// Results in ADK Content format with 'model' role instead of 'assistant'
+```
+
+<Note>
+  Only parts with `type === 'text'` are included in the transformation. Other part types are filtered out.
+</Note>
+
+### formatToolsForGenAI
+
+Formats the agent's tools to be compatible with GenAI's expected tool format.
+
+```typescript
+formatToolsForGenAI(): FormattedTool[]
+```
+
+<ResponseField name="return" type="FormattedTool[]">
+  Array of formatted tools with function declarations
+  
+  <Expandable title="FormattedTool structure">
+    <ResponseField name="functionDeclarations" type="GenAIFunctionDeclaration[]" required>
+      Array of function declarations extracted from tools
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Example
+
+```typescript
+const formattedTools = service.formatToolsForGenAI();
+
+// Use in LLM request
+const request = {
+  contents: [...],
+  config: { tools: formattedTools }
+};
+```
+
+<Warning>
+  Throws an error if a tool does not have a valid declaration. Ensure all tools implement the `_getDeclaration()` method.
+</Warning>
+
+### createStreamingResponse
+
+Creates a streaming HTTP response with Server-Sent Events (SSE) for real-time agent interactions.
+
+```typescript
+createStreamingResponse(messages: UIMessage[]): Response
+```
+
+<ParamField path="messages" type="UIMessage[]" required>
+  Array of conversation messages in Vercel AI SDK format
+</ParamField>
+
+<ResponseField name="return" type="Response">
+  A Response object with SSE stream containing conversation chunks
+  
+  <Expandable title="Response headers">
+    <ResponseField name="Content-Type" type="string">
+      Set to `text/event-stream`
+    </ResponseField>
+    
+    <ResponseField name="Cache-Control" type="string">
+      Set to `no-cache`
+    </ResponseField>
+    
+    <ResponseField name="Connection" type="string">
+      Set to `keep-alive`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### SSE Event Types
+
+The stream emits the following event types:
+
+<Expandable title="SSE Chunk Types">
+  <ResponseField name="start" type="object">
+    Emitted once at the beginning of the stream
+  </ResponseField>
+  
+  <ResponseField name="start-step" type="object">
+    Emitted at the start of each conversation turn
+  </ResponseField>
+  
+  <ResponseField name="text-start" type="object">
+    Emitted before text content begins
+    
+    <Expandable title="properties">
+      <ResponseField name="id" type="string">
+        Text chunk identifier (e.g., "text-1")
+      </ResponseField>
+    </Expandable>
+  </ResponseField>
+  
+  <ResponseField name="text-delta" type="object">
+    Emitted for each text chunk during streaming
+    
+    <Expandable title="properties">
+      <ResponseField name="id" type="string">
+        Text chunk identifier
+      </ResponseField>
+      
+      <ResponseField name="delta" type="string">
+        The incremental text content
+      </ResponseField>
+    </Expandable>
+  </ResponseField>
+  
+  <ResponseField name="text-end" type="object">
+    Emitted after text content completes
+    
+    <Expandable title="properties">
+      <ResponseField name="id" type="string">
+        Text chunk identifier
+      </ResponseField>
+    </Expandable>
+  </ResponseField>
+  
+  <ResponseField name="finish-step" type="object">
+    Emitted at the end of each conversation turn
+  </ResponseField>
+  
+  <ResponseField name="finish" type="object">
+    Emitted once when the entire conversation completes
+    
+    <Expandable title="properties">
+      <ResponseField name="finishReason" type="string">
+        Reason for completion (typically "stop")
+      </ResponseField>
+    </Expandable>
+  </ResponseField>
+</Expandable>
+
+#### Example Usage in API Route
+
+```typescript
+import { GenAIAgentService } from 'adk-utils';
+
+export async function POST(request: Request) {
+  const { messages } = await request.json();
+  
+  const service = new GenAIAgentService(agent);
+  
+  if (!service.validateMessages(messages)) {
+    return GenAIAgentService.createErrorResponse(
+      'Invalid messages',
+      400
+    );
+  }
+  
+  return service.createStreamingResponse(messages);
+}
+```
+
+#### Multi-Turn Conversation Flow
+
+The service automatically handles multi-turn conversations with tool execution:
+
+1. Streams the initial model response
+2. Detects function calls in the response
+3. Executes the requested tools in parallel
+4. Adds tool results to conversation history
+5. Continues streaming the next turn
+6. Repeats until no function calls or MAX_TURNS reached
+
+<Info>
+  The conversation loop is limited to `MAX_TURNS` (5 by default) to prevent infinite loops. If this limit is reached, the stream completes normally.
+</Info>
+
+#### Error Handling
+
+Errors during streaming are caught and sent as visible text in the chat UI:
+
+```typescript
+// Error format sent to client
+{
+  type: 'text-delta',
+  id: 'text-1',
+  delta: '❌ System Error: [error message]'
+}
+```
+
+### createErrorResponse (static)
+
+Creates a JSON error response for API routes.
+
+```typescript
+static createErrorResponse(
+  message: string,
+  status: number,
+  details?: string
+): Response
+```
+
+<ParamField path="message" type="string" required>
+  The error message to return
+</ParamField>
+
+<ParamField path="status" type="number" required>
+  HTTP status code (e.g., 400, 500)
+</ParamField>
+
+<ParamField path="details" type="string">
+  Optional additional error details
+</ParamField>
+
+<ResponseField name="return" type="Response">
+  A Response object with JSON body and appropriate headers
+  
+  <Expandable title="Response body">
+    <ResponseField name="error" type="string">
+      The error message
+    </ResponseField>
+    
+    <ResponseField name="details" type="string">
+      Additional details (if provided)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Example
+
+```typescript
+if (!messages || messages.length === 0) {
+  return GenAIAgentService.createErrorResponse(
+    'Invalid request',
+    400,
+    'Messages array is required and must not be empty'
+  );
+}
+
+try {
+  // Process request
+} catch (error) {
+  return GenAIAgentService.createErrorResponse(
+    'Internal server error',
+    500,
+    error.message
+  );
+}
+```
+
+## Type Definitions
+
+### SSEChunk
+
+```typescript
+interface SSEChunk {
+  type: string;
+  id?: string;
+  delta?: string;
+  error?: string;
+  finishReason?: string;
+}
+```
+
+Represents a Server-Sent Event chunk.
+
+### FormattedTool
+
+```typescript
+interface FormattedTool {
+  functionDeclarations: GenAIFunctionDeclaration[];
+}
+```
+
+Formatted tool structure compatible with GenAI models.
+
+### StreamChunk
+
+```typescript
+interface StreamChunk {
+  content?: {
+    parts?: Part[];
+  };
+}
+```
+
+Internal type for streaming LLM responses.
+
+## Private Methods
+
+<Note>
+  The following methods are private implementation details:
+  
+  - `hasName()` - Type guard for tools with name property
+  - `formatSSEChunk()` - Formats SSE data
+  - `encodeSSEChunk()` - Encodes SSE data as Uint8Array
+  - `sendSSEChunks()` - Sends multiple SSE chunks
+  - `sendStartEvents()` - Sends stream start events
+  - `sendEndEvents()` - Sends stream end events
+  - `processTextDelta()` - Handles text streaming with deduplication
+  - `findToolByName()` - Finds a tool by name
+  - `executeTool()` - Executes a single tool
+  - `processToolCalls()` - Processes all function calls in parallel
+  - `streamTurn()` - Streams a single conversation turn
+  - `runConversationLoop()` - Runs the multi-turn conversation loop
+</Note>
+
+## Complete API Route Example
+
+```typescript
+import { LlmAgent } from '@google/adk';
+import { GenAIAgentService, OllamaModel } from 'adk-utils';
+import { NextRequest } from 'next/server';
+
+// Initialize agent
+const model = new OllamaModel('qwen3:0.6b');
+const agent = new LlmAgent({
+  model,
+  tools: [/* your tools */],
+  name: 'ChatAgent'
+});
+
+export async function POST(request: NextRequest) {
+  try {
+    const { messages } = await request.json();
+    
+    const service = new GenAIAgentService(agent);
+    
+    if (!service.validateMessages(messages)) {
+      return GenAIAgentService.createErrorResponse(
+        'Invalid request: messages array required',
+        400
+      );
+    }
+    
+    return service.createStreamingResponse(messages);
+  } catch (error) {
+    console.error('API error:', error);
+    return GenAIAgentService.createErrorResponse(
+      'Internal server error',
+      500,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+}
+```
+
+<Info>
+  The service handles all the complexity of streaming, tool execution, and conversation management automatically. You only need to provide the agent and messages.
+</Info>

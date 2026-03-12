@@ -1,0 +1,323 @@
+---
+title: 'Testing Overview'
+description: 'Learn how to effectively test AI agents built with ADK Utils'
+icon: 'vial'
+---
+
+## Why Testing Matters for AI Agents
+
+Testing AI agents presents unique challenges compared to traditional application testing:
+
+- **Non-deterministic behavior**: LLM responses vary between runs
+- **API costs**: Testing with real LLMs can be expensive
+- **External dependencies**: Requires running Ollama or accessing cloud APIs
+- **Slow feedback loops**: Real API calls add latency to test execution
+
+ADK Utils provides **MockModel** to solve these challenges, enabling fast, cost-free, and deterministic testing.
+
+## Testing Strategies
+
+ADK Utils supports multiple testing approaches:
+
+<CardGroup cols={2}>
+  <Card title="Unit Testing" icon="flask" href="#unit-testing">
+    Test individual agent components and business logic in isolation
+  </Card>
+  <Card title="Integration Testing" icon="gears" href="#integration-testing">
+    Test agent services with mocked responses
+  </Card>
+  <Card title="E2E Testing" icon="robot" href="/testing/playwright-e2e">
+    Test complete user workflows with Playwright
+  </Card>
+  <Card title="Performance Testing" icon="gauge" href="#performance-testing">
+    Validate response times and streaming behavior
+  </Card>
+</CardGroup>
+
+## MockModel: The Foundation
+
+`MockModel` is a mock implementation of ADK's `BaseLlm` that simulates LLM responses without making real API calls.
+
+### Key Benefits
+
+<CardGroup cols={3}>
+  <Card title="Zero Cost" icon="dollar-sign">
+    No API tokens consumed during testing
+  </Card>
+  <Card title="Deterministic" icon="check-circle">
+    Predictable responses for reliable tests
+  </Card>
+  <Card title="Fast" icon="bolt">
+    No network latency or API delays
+  </Card>
+</CardGroup>
+
+### Basic Usage
+
+```typescript
+import { MockModel } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+// Create a mock model with custom response
+const mockModel = new MockModel(
+  'test-model',
+  50, // 50ms delay between chunks
+  ['Hello', ' this is', ' a mock response']
+);
+
+const agent = new LlmAgent({
+  name: 'MockAgent',
+  model: mockModel,
+  description: 'Testing Agent',
+  instruction: 'You are a test agent',
+});
+```
+
+### Dynamic Response Configuration
+
+Change mock responses and delays on the fly:
+
+```typescript
+// Update the mock response
+mockModel.setMockResponse(['New', ' custom', ' response']);
+
+// Adjust streaming delay
+mockModel.setResponseDelay(100);
+```
+
+## Unit Testing
+
+Test individual agent components with Jest or your preferred test runner.
+
+<Steps>
+  <Step title="Import Dependencies">
+    ```typescript
+    import { MockModel, GenAIAgentService } from '@yagolopez/adk-utils';
+    import { LlmAgent } from '@google/adk';
+    ```
+  </Step>
+  
+  <Step title="Create Mock Agent">
+    ```typescript
+    const mockModel = new MockModel(
+      'test-model',
+      0, // No delay for unit tests
+      ['Test response']
+    );
+    
+    const agent = new LlmAgent({
+      name: 'TestAgent',
+      model: mockModel,
+      description: 'Unit test agent',
+      instruction: 'You are a test agent',
+    });
+    ```
+  </Step>
+  
+  <Step title="Test Agent Behavior">
+    ```typescript
+    test('agent responds with mocked content', async () => {
+      const service = new GenAIAgentService(agent);
+      const messages = [{ role: 'user', content: 'Hello' }];
+      
+      expect(service.validateMessages(messages)).toBe(true);
+    });
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+Set `responseDelay` to `0` in unit tests for maximum speed. Use delays only when testing streaming behavior.
+</Tip>
+
+## Integration Testing
+
+Test complete agent services including streaming responses.
+
+```typescript
+import { MockModel, GenAIAgentService } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+describe('GenAIAgentService Integration', () => {
+  it('creates streaming response with mock model', async () => {
+    const mockModel = new MockModel(
+      'integration-test',
+      10,
+      ['Chunk 1', ' Chunk 2', ' Chunk 3']
+    );
+    
+    const agent = new LlmAgent({
+      name: 'IntegrationAgent',
+      model: mockModel,
+      description: 'Integration test agent',
+      instruction: 'Process user requests',
+    });
+    
+    const service = new GenAIAgentService(agent);
+    const messages = [
+      { role: 'user', content: 'Test message' }
+    ];
+    
+    const response = await service.createStreamingResponse(messages);
+    
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+  });
+});
+```
+
+<Note>
+`GenAIAgentService` handles streaming and Server-Sent Events (SSE) automatically. Mock responses are streamed just like real LLM responses.
+</Note>
+
+## Performance Testing
+
+Validate streaming performance and response timing:
+
+```typescript
+test('streaming response timing', async () => {
+  const mockModel = new MockModel(
+    'perf-test',
+    100, // 100ms between chunks
+    ['Fast', ' streaming', ' response']
+  );
+  
+  const agent = new LlmAgent({
+    name: 'PerfAgent',
+    model: mockModel,
+    description: 'Performance test agent',
+    instruction: 'Test streaming',
+  });
+  
+  const startTime = Date.now();
+  
+  // Test streaming behavior
+  const generator = mockModel.generateContentAsync(
+    { messages: [] },
+    true
+  );
+  
+  let chunkCount = 0;
+  for await (const chunk of generator) {
+    chunkCount++;
+  }
+  
+  const duration = Date.now() - startTime;
+  
+  expect(chunkCount).toBe(3);
+  expect(duration).toBeGreaterThanOrEqual(200); // 3 chunks * 100ms
+});
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Zero Delay for Unit Tests">
+    Keep unit tests fast by setting `responseDelay` to `0`:
+    ```typescript
+    new MockModel('test', 0, ['response'])
+    ```
+  </Step>
+  
+  <Step title="Test Streaming and Non-Streaming">
+    Verify both modes work correctly:
+    ```typescript
+    // Test streaming
+    await mockModel.generateContentAsync(request, true);
+    
+    // Test non-streaming
+    await mockModel.generateContentAsync(request, false);
+    ```
+  </Step>
+  
+  <Step title="Validate Message Formats">
+    Always test message validation:
+    ```typescript
+    const service = new GenAIAgentService(agent);
+    expect(service.validateMessages(messages)).toBe(true);
+    ```
+  </Step>
+  
+  <Step title="Test Error Conditions">
+    Verify error handling:
+    ```typescript
+    const response = GenAIAgentService.createErrorResponse(
+      'Invalid input',
+      400
+    );
+    expect(response.status).toBe(400);
+    ```
+  </Step>
+  
+  <Step title="Use Realistic Mock Responses">
+    Create mock responses that match your expected LLM output format:
+    ```typescript
+    mockModel.setMockResponse([
+      'Based on your question,',
+      ' I can help you with',
+      ' the following information...'
+    ]);
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+**Pro Tip**: Create reusable test fixtures with pre-configured MockModel instances for common test scenarios.
+</Tip>
+
+## Testing With Tools
+
+When your agents use tools, MockModel still works seamlessly:
+
+```typescript
+const weatherTool = {
+  name: 'getWeather',
+  description: 'Get weather information',
+  parameters: { location: { type: 'string' } },
+  handler: async (params: any) => ({ temp: 72, condition: 'sunny' })
+};
+
+const agent = new LlmAgent({
+  name: 'ToolAgent',
+  model: new MockModel('test', 0, ['The weather is sunny']),
+  description: 'Agent with tools',
+  instruction: 'You can check the weather',
+  tools: [weatherTool],
+});
+
+// Test agent with tools
+const service = new GenAIAgentService(agent);
+const response = await service.createStreamingResponse([
+  { role: 'user', content: 'What\'s the weather?' }
+]);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Playwright E2E Testing" icon="browser" href="/testing/playwright-e2e">
+    Learn how to write end-to-end tests with Playwright
+  </Card>
+  <Card title="GenAI Agent Service" icon="server" href="/guides/genai-agent-service">
+    Understand the service layer for agent interactions
+  </Card>
+</CardGroup>
+
+## Running Tests
+
+ADK Utils includes comprehensive test coverage:
+
+```bash
+# Run all tests
+npm test
+
+# View test coverage
+npm run test:coverage
+
+# Run tests in watch mode
+npm test -- --watch
+```
+
+<Note>
+The package uses Jest for unit testing. Check the `/docs` directory in the source repository for additional testing examples.
+</Note>

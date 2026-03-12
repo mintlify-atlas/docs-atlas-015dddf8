@@ -1,80 +1,267 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Build your first AI agent with ADK Utils in under 5 minutes
 ---
 
-## Get started in three steps
+# Quick Start
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This guide will walk you through creating your first AI agent using ADK Utils. You'll learn how to set up both local and cloud-hosted agents, and create a streaming API endpoint for a Next.js application.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Make sure you've completed the [Installation](/installation) guide before starting.
 </Note>
+
+## Create Your First Agent
+
+<Steps>
+  <Step title="Import Dependencies">
+    Create a new file called `agent.ts` and import the required dependencies:
+    
+    ```typescript agent.ts
+    import { OllamaModel } from '@yagolopez/adk-utils';
+    import { LlmAgent } from '@google/adk';
+    ```
+  </Step>
+  
+  <Step title="Create an Agent with Local Ollama">
+    For development with a local Ollama instance, create an agent using the local endpoint:
+    
+    ```typescript agent.ts
+    // Create an agent using a local Ollama model
+    const agent = new LlmAgent({
+      name: 'LocalAgent',
+      model: new OllamaModel('qwen3:0.6b', 'http://localhost:11434/v1'),
+      description: 'A helpful local agent for development',
+      instruction: 'You are a helpful assistant...',
+    });
+    
+    export default agent;
+    ```
+    
+    <Info>
+      The URL `http://localhost:11434/v1` is the default endpoint for local Ollama installations. The model `qwen3:0.6b` is a fast, lightweight model perfect for development.
+    </Info>
+  </Step>
+  
+  <Step title="Or Create a Cloud-Hosted Agent">
+    For production or when you don't have Ollama running locally, use a cloud-hosted model:
+    
+    ```typescript agent.ts
+    // Create an agent using a cloud-hosted Ollama model
+    const agent = new LlmAgent({
+      name: 'CloudAgent',
+      model: new OllamaModel('qwen2.5:0.5b', 'https://ollama.com'),
+      description: 'A helpful cloud agent for production',
+      instruction: 'You are a helpful assistant...',
+    });
+    
+    export default agent;
+    ```
+    
+    <Warning>
+      Remember to set your `OLLAMA_API_KEY` environment variable when using cloud-hosted models. See the [Installation](/installation) guide for details.
+    </Warning>
+  </Step>
+</Steps>
+
+## Create a Streaming API Route
+
+Now let's create a Next.js API route that streams responses from your agent.
+
+<Steps>
+  <Step title="Create the API Route File">
+    In a Next.js 13+ app using the App Router, create a file at `app/api/chat/route.ts`:
+  </Step>
+  
+  <Step title="Import Dependencies">
+    ```typescript app/api/chat/route.ts
+    import { GenAIAgentService, OllamaModel } from '@yagolopez/adk-utils';
+    import { LlmAgent } from '@google/adk';
+    ```
+  </Step>
+  
+  <Step title="Implement the POST Handler">
+    ```typescript app/api/chat/route.ts
+    export async function POST(req: Request) {
+      // Get user messages from the frontend
+      const { messages } = await req.json();
+      
+      // Create instance of ADK agent
+      const agent = new LlmAgent({
+        name: 'my-agent',
+        model: new OllamaModel('qwen2.5:0.5b', 'https://ollama.com'),
+        description: 'A helpful AI assistant',
+        instruction: 'You are a helpful assistant that provides clear and concise answers.',
+      });
+      
+      // Create agent service to invoke the agent in the endpoint
+      const service = new GenAIAgentService(agent);
+      
+      // Check if the messages sent by the user are valid
+      if (!service.validateMessages(messages)) {
+        return GenAIAgentService.createErrorResponse('Invalid messages', 400);
+      }
+      
+      // Invoke the agent with messages from the user and return the agent response in stream format
+      return service.createStreamingResponse(messages);
+    }
+    ```
+  </Step>
+</Steps>
+
+### What This Code Does
+
+1. **Receives messages**: Extracts the conversation history from the request body
+2. **Creates an agent**: Instantiates an `LlmAgent` with your chosen Ollama model
+3. **Validates input**: Ensures messages are in the correct format
+4. **Streams response**: Returns a Server-Sent Events (SSE) stream that the frontend can consume
+
+<Tip>
+  The `GenAIAgentService` handles all the complexity of streaming, message transformation, and Server-Sent Events formatting for you.
+</Tip>
+
+## Add Tools to Your Agent
+
+Make your agent more powerful by adding function calling capabilities:
+
+```typescript agent-with-tools.ts
+import { OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent, BaseTool } from '@google/adk';
+
+// Define a simple tool
+class WeatherTool extends BaseTool {
+  name = 'get_weather';
+  description = 'Get the current weather for a location';
+  
+  async runAsync({ args }: { args: { location: string } }) {
+    // Your weather API logic here
+    return {
+      location: args.location,
+      temperature: 72,
+      condition: 'sunny'
+    };
+  }
+  
+  _getDeclaration() {
+    return {
+      name: this.name,
+      description: this.description,
+      parameters: {
+        type: 'object',
+        properties: {
+          location: {
+            type: 'string',
+            description: 'The city and state, e.g. San Francisco, CA'
+          }
+        },
+        required: ['location']
+      }
+    };
+  }
+}
+
+// Create agent with tools
+const agent = new LlmAgent({
+  name: 'WeatherAgent',
+  model: new OllamaModel('qwen3:0.6b', 'http://localhost:11434/v1'),
+  description: 'An agent that can check weather',
+  instruction: 'You are a helpful weather assistant. Use the get_weather tool to provide accurate weather information.',
+  tools: [new WeatherTool()],
+});
+```
+
+<Note>
+  OllamaModel supports function calling and tool usage, enabling your agents to interact with external APIs and data sources.
+</Note>
+
+## Switching Between Local and Cloud
+
+One of the key benefits of ADK Utils is the ability to easily switch between local and cloud-hosted models:
+
+<CodeGroup>
+```typescript Local Development
+// Use local Ollama for development
+const model = new OllamaModel(
+  'qwen3:0.6b', 
+  'http://localhost:11434/v1'
+);
+```
+
+```typescript Cloud Production
+// Use cloud Ollama for production
+const model = new OllamaModel(
+  'qwen2.5:0.5b',
+  'https://ollama.com'
+);
+```
+
+```typescript Environment-Based
+// Switch based on environment variable
+const isProduction = process.env.NODE_ENV === 'production';
+
+const model = new OllamaModel(
+  isProduction ? 'qwen2.5:0.5b' : 'qwen3:0.6b',
+  isProduction ? 'https://ollama.com' : 'http://localhost:11434/v1'
+);
+```
+</CodeGroup>
+
+## Test Your Agent
+
+You can test your agent directly in Node.js:
+
+```typescript test-agent.ts
+import { OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+const agent = new LlmAgent({
+  name: 'TestAgent',
+  model: new OllamaModel('qwen3:0.6b', 'http://localhost:11434/v1'),
+  description: 'A test agent',
+  instruction: 'You are a helpful assistant',
+});
+
+async function testAgent() {
+  const response = await agent.sendMessage('Hello! What can you help me with?');
+  console.log('Agent response:', response);
+}
+
+testAgent();
+```
+
+Run it with:
+
+```bash
+npx tsx test-agent.ts
+```
+
+## Next Steps
+
+Congratulations! You've built your first AI agent with ADK Utils. Here's what to explore next:
+
+<CardGroup cols={2}>
+  <Card title="OllamaModel Guide" icon="brain" href="/guides/ollama-model">
+    Learn advanced OllamaModel features including function calling and model configuration
+  </Card>
+  
+  <Card title="GenAIAgentService" icon="server" href="/guides/genai-agent-service">
+    Deep dive into streaming, message handling, and Server-Sent Events
+  </Card>
+  
+  <Card title="Testing with MockModel" icon="vial" href="/guides/mock-model">
+    Learn how to test your agents without external dependencies
+  </Card>
+  
+  <Card title="Tool Calling" icon="wrench" href="/guides/tool-calling">
+    Add function calling capabilities to your agents
+  </Card>
+</CardGroup>
+
+## Example Application
+
+Want to see a complete example? Check out the live demo:
+- [https://adk-utils-example.vercel.app](https://adk-utils-example.vercel.app)
+
+<Tip>
+  Start simple with a basic agent, then gradually add tools and more complex logic as you become comfortable with the framework.
+</Tip>

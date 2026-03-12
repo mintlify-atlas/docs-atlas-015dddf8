@@ -1,0 +1,204 @@
+---
+title: Installation
+description: Install ADK Utils and configure your development environment
+---
+
+# Installation
+
+Get started with ADK Utils by installing the package and its peer dependencies.
+
+## Prerequisites
+
+Before installing ADK Utils, ensure you have:
+
+- **Node.js**: Version 18 or higher
+- **Package Manager**: npm, yarn, or pnpm
+- **Ollama** (for local usage): [Download and install Ollama](https://ollama.com/download) to run models locally
+
+<Info>
+  For local development, make sure Ollama is running on `http://localhost:11434`. You can start it with the `ollama serve` command.
+</Info>
+
+## Install ADK Utils
+
+Install the package using your preferred package manager:
+
+<CodeGroup>
+```bash npm
+npm install @yagolopez/adk-utils
+```
+
+```bash yarn
+yarn add @yagolopez/adk-utils
+```
+
+```bash pnpm
+pnpm add @yagolopez/adk-utils
+```
+</CodeGroup>
+
+## Install Peer Dependencies
+
+ADK Utils requires several peer dependencies to function properly. Install them based on your use case:
+
+<CodeGroup>
+```bash npm
+npm install @google/adk @google/genai ai ollama
+```
+
+```bash yarn
+yarn add @google/adk @google/genai ai ollama
+```
+
+```bash pnpm
+pnpm add @google/adk @google/genai ai ollama
+```
+</CodeGroup>
+
+<Warning>
+  Always use the latest versions of these packages to avoid compatibility issues. The minimum supported versions are:
+  - `@google/adk`: ^0.3.0
+  - `@google/genai`: ^1.40.0
+  - `ai`: ^6.0.81
+  - `ollama`: ^0.6.3
+</Warning>
+
+### What Each Dependency Does
+
+- **@google/adk**: Google's Agent Development Kit - the core framework for building agents
+- **@google/genai**: Google's GenAI SDK - provides types and utilities for AI interactions
+- **ai**: Vercel AI SDK - enables streaming UI components and message handling
+- **ollama**: Official Ollama JavaScript client - connects to local or cloud Ollama instances
+
+## Environment Setup
+
+### For Cloud-Hosted Ollama
+
+If you plan to use cloud-hosted Ollama models in production, you'll need an API key.
+
+<Steps>
+  <Step title="Get Your API Key">
+    Sign up at [https://ollama.com](https://ollama.com) and obtain your `OLLAMA_API_KEY` from your account settings.
+  </Step>
+  
+  <Step title="Create Environment File">
+    Create a `.env` or `.env.local` file in your project root:
+    
+    ```bash .env.local
+    OLLAMA_API_KEY=your_api_key_here
+    ```
+  </Step>
+  
+  <Step title="Add to .gitignore">
+    Ensure your environment file is not committed to version control:
+    
+    ```bash .gitignore
+    .env
+    .env.local
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  The `OLLAMA_API_KEY` is **only required for cloud-hosted models**. Local Ollama instances don't need authentication.
+</Note>
+
+### For Local Ollama Development
+
+For local development, no API key is needed. Just ensure:
+
+1. Ollama is installed on your machine
+2. Ollama service is running (usually starts automatically, or run `ollama serve`)
+3. You've pulled at least one model:
+
+```bash
+# Pull a small model for development
+ollama pull qwen3:0.6b
+
+# Or a more capable model
+ollama pull qwen2.5:0.5b
+```
+
+<Tip>
+  Start with smaller models like `qwen3:0.6b` for faster responses during development. You can switch to larger models for production.
+</Tip>
+
+## Verify Installation
+
+Create a simple test file to verify everything is working:
+
+```typescript verify.ts
+import { OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+const agent = new LlmAgent({
+  name: 'test-agent',
+  model: new OllamaModel('qwen3:0.6b', 'http://localhost:11434/v1'),
+  description: 'A test agent',
+  instruction: 'You are a helpful assistant',
+});
+
+console.log('✅ ADK Utils is installed correctly!');
+console.log('Agent name:', agent.name);
+```
+
+Run the verification:
+
+<CodeGroup>
+```bash tsx
+npx tsx verify.ts
+```
+
+```bash ts-node
+npx ts-node verify.ts
+```
+</CodeGroup>
+
+If you see the success message, you're ready to build agents!
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: Cannot find module '@google/adk'">
+    Make sure you've installed all peer dependencies:
+    ```bash
+    npm install @google/adk @google/genai ai ollama
+    ```
+  </Accordion>
+  
+  <Accordion title="Error: Connection refused to localhost:11434">
+    Ensure Ollama is running locally:
+    ```bash
+    ollama serve
+    ```
+    
+    Check if Ollama is accessible:
+    ```bash
+    curl http://localhost:11434/api/tags
+    ```
+  </Accordion>
+  
+  <Accordion title="Error: Model not found">
+    Pull the model you're trying to use:
+    ```bash
+    ollama pull qwen3:0.6b
+    ```
+    
+    List available models:
+    ```bash
+    ollama list
+    ```
+  </Accordion>
+  
+  <Accordion title="TypeScript errors about peer dependencies">
+    Ensure you're using compatible versions. Delete `node_modules` and reinstall:
+    ```bash
+    rm -rf node_modules package-lock.json
+    npm install
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Now that you have ADK Utils installed, continue to the [Quick Start](/quickstart) guide to build your first agent.

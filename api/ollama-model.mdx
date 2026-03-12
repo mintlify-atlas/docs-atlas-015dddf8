@@ -1,0 +1,296 @@
+---
+title: OllamaModel
+description: Custom Ollama model class that extends BaseLlm to work with local and cloud Ollama models
+---
+
+## Overview
+
+`OllamaModel` is a custom implementation of the ADK's `BaseLlm` class that provides integration with Ollama models, supporting both local and cloud-hosted instances. It enables streaming and non-streaming content generation with tool/function calling capabilities.
+
+## Constructor
+
+```typescript
+constructor(modelName?: string, baseURL?: string)
+```
+
+<ParamField path="modelName" type="string" default="qwen3:0.6b">
+  The name of the Ollama model to use
+</ParamField>
+
+<ParamField path="baseURL" type="string" default="http://localhost:11434/v1">
+  The base URL of the Ollama server. Can be a local or cloud endpoint
+</ParamField>
+
+### Example
+
+```typescript
+import { OllamaModel } from 'adk-utils';
+
+// Local Ollama instance
+const localModel = new OllamaModel('qwen3:0.6b', 'http://localhost:11434/v1');
+
+// Cloud Ollama instance
+const cloudModel = new OllamaModel(
+  'llama3.2:3b',
+  'https://api.ollama.com/v1'
+);
+```
+
+<Note>
+  The constructor automatically configures authentication using the `OLLAMA_API_KEY` environment variable if available.
+</Note>
+
+## Properties
+
+### model
+
+```typescript
+public model: string
+```
+
+The name of the current Ollama model being used.
+
+### baseURL
+
+```typescript
+private readonly baseURL: string
+```
+
+The base URL of the Ollama server.
+
+## Methods
+
+### generateContentAsync
+
+Generates content from the model, supporting both streaming and non-streaming modes with tool calling capabilities.
+
+```typescript
+async *generateContentAsync(
+  llmRequest: LlmRequest,
+  stream?: boolean
+): AsyncGenerator<LlmResponse, void>
+```
+
+<ParamField path="llmRequest" type="LlmRequest" required>
+  The request object containing conversation contents and optional tool configurations
+  
+  <Expandable title="LlmRequest properties">
+    <ResponseField name="contents" type="Content[]" required>
+      Array of conversation messages with roles and parts
+    </ResponseField>
+    
+    <ResponseField name="config" type="object">
+      Optional configuration object
+      
+      <Expandable title="config properties">
+        <ResponseField name="tools" type="ToolDeclaration[]">
+          Array of tool/function declarations for tool calling
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="stream" type="boolean" default="true">
+  Whether to stream the response. When `true`, yields multiple partial responses. When `false`, yields a single complete response.
+</ParamField>
+
+<ResponseField name="return" type="AsyncGenerator<LlmResponse, void>">
+  An async generator that yields response objects
+  
+  <Expandable title="LlmResponse properties">
+    <ResponseField name="content" type="Content">
+      The response content with role and parts
+      
+      <Expandable title="Content structure">
+        <ResponseField name="role" type="'model'">
+          The role is always 'model' for generated responses
+        </ResponseField>
+        
+        <ResponseField name="parts" type="Part[]">
+          Array of response parts (text or function calls)
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="partial" type="boolean">
+      Whether this is a partial response (streaming) or complete response
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Streaming Example
+
+```typescript
+import { OllamaModel } from 'adk-utils';
+
+const model = new OllamaModel('qwen3:0.6b');
+
+const request = {
+  contents: [
+    {
+      role: 'user',
+      parts: [{ text: 'Explain quantum computing' }]
+    }
+  ]
+};
+
+// Stream response chunks
+for await (const response of model.generateContentAsync(request, true)) {
+  if (response.partial && response.content.parts[0]?.text) {
+    process.stdout.write(response.content.parts[0].text);
+  }
+}
+```
+
+#### Non-Streaming Example
+
+```typescript
+const request = {
+  contents: [
+    {
+      role: 'user',
+      parts: [{ text: 'What is TypeScript?' }]
+    }
+  ]
+};
+
+// Get complete response
+for await (const response of model.generateContentAsync(request, false)) {
+  const text = response.content.parts
+    .filter(part => 'text' in part)
+    .map(part => part.text)
+    .join('');
+  console.log(text);
+}
+```
+
+#### Tool Calling Example
+
+```typescript
+const tools = [{
+  functionDeclarations: [{
+    name: 'get_weather',
+    description: 'Get the current weather for a location',
+    parameters: {
+      type: 'object',
+      properties: {
+        location: {
+          type: 'string',
+          description: 'The city name'
+        }
+      }
+    }
+  }]
+}];
+
+const request = {
+  contents: [
+    {
+      role: 'user',
+      parts: [{ text: 'What is the weather in San Francisco?' }]
+    }
+  ],
+  config: { tools }
+};
+
+for await (const response of model.generateContentAsync(request)) {
+  for (const part of response.content.parts) {
+    if ('functionCall' in part) {
+      console.log('Tool call:', part.functionCall.name);
+      console.log('Arguments:', part.functionCall.args);
+    }
+  }
+}
+```
+
+<Warning>
+  The method throws an error if the Ollama API request fails. Ensure your Ollama server is running and accessible.
+</Warning>
+
+### connect
+
+Attempts to establish a live connection to the model.
+
+```typescript
+connect(): Promise<BaseLlmConnection>
+```
+
+<Warning>
+  This method always throws an error with the message: "Live connections are not supported for OllamaModel". OllamaModel only supports request/response patterns via `generateContentAsync`.
+</Warning>
+
+## Type Definitions
+
+### ToolDeclaration
+
+```typescript
+interface ToolDeclaration {
+  name?: string;
+  description?: string;
+  parameters?: JSONSchema;
+}
+```
+
+Defines a tool/function that the model can call.
+
+### FunctionCall
+
+```typescript
+interface FunctionCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+```
+
+Represents a function call made by the model.
+
+### JSONSchema
+
+```typescript
+interface JSONSchema {
+  type?: string;
+  properties?: Record<string, JSONSchema>;
+  [key: string]: unknown;
+}
+```
+
+Defines the schema for function parameters using JSON Schema format.
+
+## Private Methods
+
+<Note>
+  The following methods are private implementation details and are not part of the public API:
+  
+  - `convertToOllamaMessages()` - Converts ADK Content format to Ollama message format
+  - `sanitizeSchema()` - Sanitizes JSON schemas by converting type names to lowercase
+</Note>
+
+## Authentication
+
+The OllamaModel constructor automatically configures authentication using the `OLLAMA_API_KEY` environment variable:
+
+```bash
+export OLLAMA_API_KEY="your-api-key"
+```
+
+For local Ollama instances without authentication, the API key is optional.
+
+## Error Handling
+
+```typescript
+try {
+  const model = new OllamaModel('qwen3:0.6b');
+  const request = { contents: [{ role: 'user', parts: [{ text: 'Hello' }] }] };
+  
+  for await (const response of model.generateContentAsync(request)) {
+    // Process response
+  }
+} catch (error) {
+  console.error('Model error:', error.message);
+}
+```
+
+<Info>
+  All errors from the Ollama API are caught and re-thrown as standard JavaScript Error objects with descriptive messages.
+</Info>

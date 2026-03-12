@@ -1,0 +1,539 @@
+---
+title: 'Streaming Responses'
+description: 'Implement real-time streaming with Server-Sent Events (SSE)'
+icon: 'water'
+---
+
+## Overview
+
+Streaming allows your application to display LLM responses in real-time as they're generated, providing a better user experience. ADK Utils uses **Server-Sent Events (SSE)** to stream responses from the server to the client.
+
+<Info>
+  Streaming is supported by both `OllamaModel` and `MockModel`, and is handled automatically by `GenAIAgentService`.
+</Info>
+
+## How Streaming Works
+
+The streaming flow consists of four main stages:
+
+<Steps>
+  <Step title="Client Request">
+    The frontend sends a POST request with user messages to your API route
+  </Step>
+  <Step title="Stream Creation">
+    `GenAIAgentService` creates a `ReadableStream` and starts streaming SSE events
+  </Step>
+  <Step title="Incremental Responses">
+    The LLM model generates content in chunks, which are sent as SSE text deltas
+  </Step>
+  <Step title="Stream Completion">
+    When generation is complete, finish events are sent and the stream closes
+  </Step>
+</Steps>
+
+## SSE (Server-Sent Events) Format
+
+### Event Types
+
+ADK Utils emits several types of SSE events:
+
+| Event Type | Description | Example |
+|------------|-------------|----------|
+| `start` | Marks the beginning of streaming | `{"type":"start"}` |
+| `start-step` | Begins a new generation step | `{"type":"start-step"}` |
+| `text-start` | Begins text generation | `{"type":"text-start","id":"text-1"}` |
+| `text-delta` | Contains incremental text content | `{"type":"text-delta","id":"text-1","delta":"Hello"}` |
+| `text-end` | Ends text generation | `{"type":"text-end","id":"text-1"}` |
+| `finish-step` | Ends the current generation step | `{"type":"finish-step"}` |
+| `finish` | Marks the end of streaming | `{"type":"finish","finishReason":"stop"}` |
+
+### Complete SSE Example
+
+```text
+data: {"type":"start"}\n\n
+
+data: {"type":"start-step"}\n\n
+
+data: {"type":"text-start","id":"text-1"}\n\n
+
+data: {"type":"text-delta","id":"text-1","delta":"Hello"}\n\n
+
+data: {"type":"text-delta","id":"text-1","delta":" world"}\n\n
+
+data: {"type":"text-delta","id":"text-1","delta":"!"}\n\n
+
+data: {"type":"text-end","id":"text-1"}\n\n
+
+data: {"type":"finish-step"}\n\n
+
+data: {"type":"finish","finishReason":"stop"}\n\n
+```
+
+<Note>
+  Each SSE event is prefixed with `data: ` and terminated with `\n\n` (two newlines).
+</Note>
+
+## Backend Implementation
+
+Streaming is automatically handled by `GenAIAgentService`:
+
+```typescript app/api/chat/route.ts
+import { GenAIAgentService, OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+  
+  const agent = new LlmAgent({
+    name: 'chat-agent',
+    model: new OllamaModel('qwen2.5:0.5b'),
+    instruction: 'You are a helpful assistant.',
+  });
+  
+  const service = new GenAIAgentService(agent);
+  
+  if (!service.validateMessages(messages)) {
+    return GenAIAgentService.createErrorResponse('Invalid messages', 400);
+  }
+  
+  // This returns a Response with text/event-stream content type
+  return service.createStreamingResponse(messages);
+}
+```
+
+The returned `Response` includes proper headers:
+
+```typescript
+{
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  'Connection': 'keep-alive',
+}
+```
+
+## Frontend Integration Patterns
+
+### Using Vercel AI SDK
+
+The easiest way to consume streaming responses is with Vercel AI SDK's `useChat` hook:
+
+<CodeGroup>
+```typescript components/Chat.tsx
+'use client';
+
+import { useChat } from '@ai-sdk/react';
+
+export default function Chat() {
+  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+    api: '/api/chat',
+    streamProtocol: 'text',  // Use text protocol for SSE
+  });
+  
+  return (
+    <div className="flex flex-col h-screen">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {messages.map(message => (
+          <div key={message.id} className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'}`}>
+            <div className={`inline-block p-3 rounded-lg ${
+              message.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200'
+            }`}>
+              {message.content}
+            </div>
+          </div>
+        ))}
+        {isLoading && (
+          <div className="text-gray-500">Thinking...</div>
+        )}
+      </div>
+      
+      {/* Input */}
+      <form onSubmit={handleSubmit} className="border-t p-4">
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={handleInputChange}
+            disabled={isLoading}
+            placeholder="Type a message..."
+            className="flex-1 p-2 border rounded"
+          />
+          <button 
+            type="submit" 
+            disabled={isLoading}
+            className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+          >
+            Send
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+```
+
+```typescript app/page.tsx
+import Chat from '@/components/Chat';
+
+export default function Home() {
+  return (
+    <main className="h-screen">
+      <Chat />
+    </main>
+  );
+}
+```
+</CodeGroup>
+
+### Manual SSE Parsing
+
+If you need more control, you can manually parse the SSE stream:
+
+```typescript
+async function streamChat(messages: Message[]) {
+  const response = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages }),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  
+  while (true) {
+    const { done, value } = await reader!.read();
+    if (done) break;
+    
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n\n');
+    buffer = lines.pop() || '';
+    
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      
+      const data = line.slice(6);  // Remove 'data: ' prefix
+      const event = JSON.parse(data);
+      
+      if (event.type === 'text-delta') {
+        console.log('Received delta:', event.delta);
+        // Update your UI with the delta
+      } else if (event.type === 'finish') {
+        console.log('Stream finished:', event.finishReason);
+      }
+    }
+  }
+}
+```
+
+### React Hook for SSE
+
+Create a custom hook for SSE streaming:
+
+```typescript hooks/useStreamingChat.ts
+import { useState, useCallback } from 'react';
+
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export function useStreamingChat() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [currentResponse, setCurrentResponse] = useState('');
+  
+  const sendMessage = useCallback(async (userMessage: string) => {
+    // Add user message
+    const newMessages = [...messages, { role: 'user' as const, content: userMessage }];
+    setMessages(newMessages);
+    setIsLoading(true);
+    setCurrentResponse('');
+    
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: newMessages }),
+      });
+      
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accumulatedText = '';
+      
+      while (true) {
+        const { done, value } = await reader!.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          
+          const event = JSON.parse(line.slice(6));
+          
+          if (event.type === 'text-delta') {
+            accumulatedText += event.delta;
+            setCurrentResponse(accumulatedText);
+          }
+        }
+      }
+      
+      // Add complete assistant message
+      setMessages([...newMessages, { role: 'assistant', content: accumulatedText }]);
+      setCurrentResponse('');
+    } catch (error) {
+      console.error('Streaming error:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [messages]);
+  
+  return {
+    messages,
+    currentResponse,
+    isLoading,
+    sendMessage,
+  };
+}
+```
+
+Usage:
+
+```typescript
+import { useStreamingChat } from '@/hooks/useStreamingChat';
+
+export default function Chat() {
+  const { messages, currentResponse, isLoading, sendMessage } = useStreamingChat();
+  const [input, setInput] = useState('');
+  
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+    sendMessage(input);
+    setInput('');
+  };
+  
+  return (
+    <div>
+      {messages.map((msg, i) => (
+        <div key={i}>
+          <strong>{msg.role}:</strong> {msg.content}
+        </div>
+      ))}
+      {currentResponse && (
+        <div>
+          <strong>assistant:</strong> {currentResponse}
+        </div>
+      )}
+      <form onSubmit={handleSubmit}>
+        <input value={input} onChange={e => setInput(e.target.value)} />
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  );
+}
+```
+
+## Handling Streaming Responses
+
+### Text Accumulation
+
+The service handles Gemini's accumulated text behavior automatically:
+
+<Accordion title="How Text Accumulation Works">
+  Some LLMs (like Gemini) send the full accumulated text in each chunk instead of just the delta:
+
+  **Problem:**
+  ```typescript
+  Chunk 1: "Hello"
+  Chunk 2: "Hello world"  // Full text, not just " world"
+  Chunk 3: "Hello world!" // Full text, not just "!"
+  ```
+
+  **Solution:**
+  
+  `GenAIAgentService` automatically detects this pattern and only emits the delta:
+  
+  ```typescript
+  Emitted 1: "Hello"
+  Emitted 2: " world"  // Only the new part
+  Emitted 3: "!"       // Only the new part
+  ```
+
+  This is handled in the `processTextDelta` method:
+
+  ```typescript
+  // Check if this part is the full accumulated text
+  if (delta.startsWith(textBuffer) && textBuffer.length > 0) {
+    delta = delta.slice(textBuffer.length);  // Extract only the delta
+  }
+  ```
+</Accordion>
+
+### Multi-Turn Conversations
+
+When tools are involved, the service handles multi-turn streaming automatically:
+
+```typescript
+import { GenAIAgentService, OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent, Tool } from '@google/adk';
+
+const weatherTool = new Tool({
+  name: 'get_weather',
+  description: 'Get weather for a city',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      city: { type: 'STRING' }
+    },
+    required: ['city']
+  },
+  func: async ({ city }) => ({ temperature: 72, condition: 'sunny' })
+});
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+  
+  const agent = new LlmAgent({
+    name: 'weather-agent',
+    model: new OllamaModel('qwen2.5-coder'),
+    instruction: 'Help users check the weather.',
+    tools: [weatherTool],
+  });
+  
+  const service = new GenAIAgentService(agent);
+  
+  if (!service.validateMessages(messages)) {
+    return GenAIAgentService.createErrorResponse('Invalid messages', 400);
+  }
+  
+  // Automatically handles:
+  // 1. Stream initial response
+  // 2. Execute tool if needed
+  // 3. Stream follow-up response with tool results
+  return service.createStreamingResponse(messages);
+}
+```
+
+<Note>
+  The service automatically loops through up to 5 turns (configurable via `MAX_TURNS`) to handle complex multi-step interactions.
+</Note>
+
+## Error Handling in Streams
+
+Errors during streaming are automatically caught and sent to the client:
+
+### Server-Side Error Handling
+
+```typescript
+// GenAIAgentService automatically handles errors
+const stream = new ReadableStream<Uint8Array>({
+  start: async (controller) => {
+    try {
+      // Stream generation logic
+    } catch (error) {
+      console.error('Error streaming response:', error);
+      
+      // Send error as text in the stream
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.sendSSEChunks(controller, {
+        type: 'text-delta',
+        id: 'text-1',
+        delta: `❌ System Error: ${errorMessage}`
+      });
+      
+      this.sendEndEvents(controller);
+      controller.close();
+    }
+  }
+});
+```
+
+### Client-Side Error Handling
+
+```typescript
+async function streamChat(messages: Message[]) {
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Request failed');
+    }
+    
+    // Parse stream...
+  } catch (error) {
+    console.error('Chat error:', error);
+    // Show error in UI
+  }
+}
+```
+
+## Performance Considerations
+
+<CardGroup cols={2}>
+  <Card title="Chunk Size" icon="boxes">
+    Smaller chunks provide more real-time feedback but increase overhead. Balance based on your needs.
+  </Card>
+  <Card title="Buffer Management" icon="memory">
+    The service efficiently manages text buffers to prevent memory leaks during long streams.
+  </Card>
+  <Card title="Connection Keep-Alive" icon="link">
+    SSE connections are kept alive with proper headers to prevent timeouts.
+  </Card>
+  <Card title="Parallel Tool Execution" icon="gears">
+    When multiple tools are called, they execute in parallel for faster responses.
+  </Card>
+</CardGroup>
+
+## Testing Streaming
+
+Use `MockModel` to test streaming behavior:
+
+```typescript
+import { MockModel } from '@yagolopez/adk-utils';
+
+const mockModel = new MockModel(
+  'test-model',
+  50,  // 50ms delay between chunks
+  ['Chunk 1', ' Chunk 2', ' Chunk 3']
+);
+
+// Test streaming in your tests
+const generator = mockModel.generateContentAsync(request, true);
+
+for await (const chunk of generator) {
+  console.log(chunk.content?.parts?.[0].text);
+  // Verify streaming behavior
+}
+```
+
+See the [MockModel guide](/guides/mock-model) for more testing patterns.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GenAI Agent Service" icon="server" href="/guides/genai-agent-service">
+    Learn more about the service that handles streaming
+  </Card>
+  <Card title="Tool Calling" icon="wrench" href="/guides/tool-calling">
+    Understand how tool execution works with streaming
+  </Card>
+  <Card title="OllamaModel" icon="computer" href="/guides/ollama-model">
+    Configure models for optimal streaming performance
+  </Card>
+  <Card title="Mock Model" icon="flask" href="/guides/mock-model">
+    Test streaming without real API calls
+  </Card>
+</CardGroup>

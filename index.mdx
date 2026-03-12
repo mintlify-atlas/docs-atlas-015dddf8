@@ -1,97 +1,148 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "ADK Utils"
+description: "TypeScript utilities for Google Agent Development Kit (ADK) enabling local Ollama models and streaming agent interactions"
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #94cb04 0%, #545454 100%)',
+  padding: '4rem 2rem',
+  borderRadius: '8px',
+  marginBottom: '2rem',
+  color: 'white'
+}}>
+  <h1 style={{ fontSize: '3rem', fontWeight: '700', marginBottom: '1rem', color: 'white' }}>
+    ADK Utils
+  </h1>
+  <p style={{ fontSize: '1.25rem', marginBottom: '2rem', color: 'white', opacity: 0.95 }}>
+    TypeScript utilities for Google Agent Development Kit (ADK) enabling local Ollama models and streaming agent interactions
+  </p>
+  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+    <a 
+      href="/quickstart" 
+      style={{
+        background: 'white',
+        color: '#1a1a1a',
+        padding: '0.75rem 1.5rem',
+        borderRadius: '6px',
+        textDecoration: 'none',
+        fontWeight: '600',
+        display: 'inline-block'
+      }}
+    >
+      Get Started
+    </a>
+    <a 
+      href="https://github.com/YagoLopez/adk-utils" 
+      style={{
+        background: 'transparent',
+        color: 'white',
+        padding: '0.75rem 1.5rem',
+        borderRadius: '6px',
+        textDecoration: 'none',
+        fontWeight: '600',
+        display: 'inline-block',
+        border: '2px solid white'
+      }}
+    >
+      View on GitHub
+    </a>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+## Why ADK Utils?
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+Google's Agent Development Kit (ADK) provides excellent support for local models in Python via `litellm`, but **there is no native way to use local Ollama models with TypeScript**. ADK Utils bridges this gap with a complete toolkit for building TypeScript agents.
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={3}>
+  <Card title="OllamaModel" icon="server" href="/guides/ollama-model">
+    Custom `BaseLlm` implementation for local and cloud Ollama models
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="GenAIAgentService" icon="bolt" href="/guides/genai-agent-service">
+    Streaming service with native SSE support for Next.js routes
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="MockModel" icon="flask" href="/guides/mock-model">
+    Testing implementation without API costs or dependencies
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Key Features
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Local & Cloud Ollama Support" icon="cloud">
+    Use local Ollama models during development to save tokens, then switch to cloud models for production
+  </Card>
+  <Card title="Tool Calling" icon="wrench">
+    Full support for LLM function execution with tool calling capabilities
+  </Card>
+  <Card title="Streaming & SSE" icon="stream">
+    Native streaming support with Server-Sent Events for real-time agent responses
+  </Card>
+  <Card title="Vercel AI SDK Integration" icon="code">
+    Seamless integration with Vercel AI SDK and Google GenAI ecosystem
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Quick Start
 
-## Need inspiration?
+Get started with ADK Utils in three simple steps:
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
+<Steps>
+  <Step title="Install the package">
+    <CodeGroup>
+    ```bash npm
+    npm install @yagolopez/adk-utils
+    ```
+    ```bash yarn
+    yarn add @yagolopez/adk-utils
+    ```
+    ```bash pnpm
+    pnpm add @yagolopez/adk-utils
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Install peer dependencies">
+    ```bash
+    npm install @google/adk @google/genai ai ollama
+    ```
+  </Step>
+  
+  <Step title="Create your first agent">
+    ```typescript
+    import { OllamaModel } from '@yagolopez/adk-utils';
+    import { LlmAgent } from '@google/adk';
+
+    const agent = new LlmAgent({
+      name: 'LocalAgent',
+      model: new OllamaModel('qwen3:0.6b', 'http://localhost:11434/v1'),
+      description: 'Agent description',
+      instruction: 'You are a helpful assistant...',
+    });
+    ```
+  </Step>
+</Steps>
+
+## Explore the Documentation
+
+<CardGroup cols={2}>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Detailed installation instructions and dependency setup
+  </Card>
+  <Card title="Quickstart Tutorial" icon="rocket" href="/quickstart">
+    Build your first agent in minutes
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/ollama-model">
+    Complete API documentation for all classes
+  </Card>
+  <Card title="Testing with MockModel" icon="vial" href="/testing/overview">
+    Learn how to test agents without API costs
+  </Card>
+</CardGroup>
+
+## Live Demo
+
+Check out the working example application:
+
+<Card title="ADK Utils Demo" icon="play" href="https://adk-utils-example.vercel.app">
+  See ADK Utils in action with a live Next.js application
 </Card>

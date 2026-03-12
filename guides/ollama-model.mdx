@@ -1,0 +1,265 @@
+---
+title: 'OllamaModel'
+description: 'Use local and cloud Ollama models with Google ADK'
+icon: 'computer'
+---
+
+## Overview
+
+The `OllamaModel` class extends ADK's `BaseLlm` to enable integration with both local and cloud-hosted Ollama models. This is particularly useful during development when you want to save tokens by using local models instead of paid APIs.
+
+<Info>
+  The Google Agent Development Kit (ADK) provides native support for local models in Python via `litellm`, but not for TypeScript. `OllamaModel` fills this gap.
+</Info>
+
+## Constructor Parameters
+
+The `OllamaModel` constructor accepts two parameters:
+
+```typescript
+new OllamaModel(modelName?: string, baseURL?: string)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `modelName` | `string` | `'qwen3:0.6b'` | The Ollama model to use |
+| `baseURL` | `string` | `'http://localhost:11434/v1'` | The Ollama server URL |
+
+## Local vs Cloud Usage
+
+<Tabs>
+  <Tab title="Local Ollama">
+    ### Using a Local Ollama Model
+
+    When running Ollama locally, use the default localhost URL or specify your custom local endpoint:
+
+    ```typescript
+    import { OllamaModel } from '@yagolopez/adk-utils';
+    import { LlmAgent } from '@google/adk';
+
+    // Create an agent with a local Ollama model
+    const agent = new LlmAgent({
+      name: 'LocalAgent',
+      model: new OllamaModel('qwen3:0.6b', 'http://localhost:11434/v1'),
+      description: 'Agent using local Ollama model',
+      instruction: 'You are a helpful assistant...',
+      tools: [],
+    });
+    ```
+
+    <Note>
+      Make sure Ollama is installed and running locally before using local models.
+    </Note>
+
+  </Tab>
+  <Tab title="Cloud Ollama">
+    ### Using a Cloud-Hosted Ollama Model
+
+    For cloud-hosted Ollama models, you need an API key and must use the `https://ollama.com` URL:
+
+    ```typescript
+    import { OllamaModel } from '@yagolopez/adk-utils';
+    import { LlmAgent } from '@google/adk';
+
+    // Make sure OLLAMA_API_KEY is set in your .env file
+    const agent = new LlmAgent({
+      name: 'CloudAgent',
+      model: new OllamaModel('qwen2.5:0.5b', 'https://ollama.com'),
+      description: 'Agent using cloud-hosted Ollama',
+      instruction: 'You are a helpful assistant...',
+      tools: [],
+    });
+    ```
+
+    <Warning>
+      Set `OLLAMA_API_KEY` in your `.env` file. You can obtain this key from [ollama.com](https://ollama.com).
+    </Warning>
+
+  </Tab>
+</Tabs>
+
+## Model Selection Guide
+
+### Recommended Models
+
+Choose your model based on your needs:
+
+<CardGroup cols={2}>
+  <Card title="Fast Development" icon="bolt">
+    **qwen3:0.6b** or **qwen2.5:0.5b**
+    
+    Smallest, fastest models for rapid iteration during development.
+  </Card>
+  <Card title="Balanced Performance" icon="scale-balanced">
+    **llama3:8b** or **mistral:7b**
+    
+    Good balance between speed and capability for most applications.
+  </Card>
+  <Card title="Production Quality" icon="star">
+    **llama3:70b** or **mixtral:8x7b**
+    
+    Higher quality responses for production use cases.
+  </Card>
+  <Card title="Code & Tools" icon="code">
+    **qwen2.5-coder** or **deepseek-coder**
+    
+    Specialized models optimized for code generation and tool calling.
+  </Card>
+</CardGroup>
+
+## Configuration Examples
+
+### Basic Configuration
+
+```typescript
+import { OllamaModel } from '@yagolopez/adk-utils';
+
+// Default configuration (local, qwen3:0.6b)
+const model1 = new OllamaModel();
+
+// Custom model name
+const model2 = new OllamaModel('llama3:8b');
+
+// Custom local endpoint
+const model3 = new OllamaModel('mistral:7b', 'http://192.168.1.100:11434/v1');
+```
+
+### With Environment Variables
+
+```typescript .env
+OLLAMA_API_KEY=your_api_key_here
+OLLAMA_MODEL=qwen2.5:0.5b
+OLLAMA_BASE_URL=https://ollama.com
+```
+
+```typescript
+import { OllamaModel } from '@yagolopez/adk-utils';
+
+const model = new OllamaModel(
+  process.env.OLLAMA_MODEL,
+  process.env.OLLAMA_BASE_URL
+);
+```
+
+## Common Patterns and Best Practices
+
+### 1. Development vs Production
+
+Use different models for development and production:
+
+```typescript
+import { OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+const isDevelopment = process.env.NODE_ENV === 'development';
+
+const model = isDevelopment
+  ? new OllamaModel('qwen3:0.6b', 'http://localhost:11434/v1')  // Fast local
+  : new OllamaModel('llama3:8b', 'https://ollama.com');           // Production
+
+const agent = new LlmAgent({
+  name: 'AdaptiveAgent',
+  model,
+  description: 'Agent that adapts to environment',
+  instruction: 'You are a helpful assistant.',
+});
+```
+
+### 2. Error Handling
+
+Always wrap model calls in try-catch blocks:
+
+```typescript
+import { OllamaModel } from '@yagolopez/adk-utils';
+
+try {
+  const model = new OllamaModel('llama3:8b');
+  const response = await model.generateContentAsync({
+    contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+  });
+  
+  for await (const chunk of response) {
+    console.log(chunk.content?.parts?.[0].text);
+  }
+} catch (error) {
+  console.error('Ollama error:', error);
+  // Fallback logic here
+}
+```
+
+### 3. Model Warmup
+
+For better first-response times, warm up your model:
+
+```typescript
+import { OllamaModel } from '@yagolopez/adk-utils';
+import { LlmAgent } from '@google/adk';
+
+const agent = new LlmAgent({
+  name: 'WarmAgent',
+  model: new OllamaModel(),
+  description: 'Pre-warmed agent',
+  instruction: 'You are ready to respond quickly.',
+});
+
+// Warm up with a simple query
+await agent.run({ message: 'ping' });
+```
+
+### 4. Streaming Responses
+
+`OllamaModel` supports streaming by default:
+
+```typescript
+import { OllamaModel } from '@yagolopez/adk-utils';
+
+const model = new OllamaModel();
+
+const generator = model.generateContentAsync(
+  {
+    contents: [{ role: 'user', parts: [{ text: 'Tell me a story' }] }],
+  },
+  true  // Enable streaming
+);
+
+for await (const chunk of generator) {
+  if (chunk.content?.parts?.[0]?.text) {
+    process.stdout.write(chunk.content.parts[0].text);
+  }
+}
+```
+
+## Tool Support
+
+`OllamaModel` has built-in support for tool calling. See the [Tool Calling guide](/guides/tool-calling) for detailed examples.
+
+<Note>
+  Tool support requires Ollama models that support function calling, such as `qwen2.5-coder` or recent versions of `llama3`.
+</Note>
+
+## Limitations
+
+<Warning>
+  Live connections are not supported. Calling `model.connect()` will throw an error:
+  
+  ```
+  Error: Live connections are not supported for OllamaModel
+  ```
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GenAI Agent Service" icon="code" href="/guides/genai-agent-service">
+    Learn how to use OllamaModel in Next.js API routes
+  </Card>
+  <Card title="Tool Calling" icon="wrench" href="/guides/tool-calling">
+    Add function calling capabilities to your agents
+  </Card>
+  <Card title="Streaming" icon="water" href="/guides/streaming">
+    Implement streaming responses in your UI
+  </Card>
+  <Card title="Mock Model" icon="flask" href="/guides/mock-model">
+    Use MockModel for testing without API calls
+  </Card>
+</CardGroup>
